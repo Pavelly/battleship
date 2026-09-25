@@ -224,9 +224,9 @@ class BattleShipClient:
 
     def _print_board(self, board, show_ships: bool):
         symbols = {0: '.', 1: 'S', 2: 'X', 3: 'o'}
-        print("  " + " ".join(chr(ord('A') + c) for c in range(10)))
+        print("   " + " ".join(chr(ord('A') + c) for c in range(10)))
         for r in range(10):
-            row_str = f"{r + 1:2d} "
+            row_str = f"{r+1:2d} "
             for c in range(10):
                 cell = board[r][c]
                 if cell == 1 and not show_ships:

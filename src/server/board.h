@@ -34,7 +34,7 @@ public:
     CellState GetCellState(uint8_t row, uint8_t col) const;
     size_t GetShipCount() const { return ships_.size(); }
     void Reset();
-    void Print(bool show_ships = true);
+    void Print(bool show_ships = true) const;
 private:
     std::vector<Ship> ships_;
 

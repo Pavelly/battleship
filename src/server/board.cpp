@@ -68,26 +68,26 @@ void Board::Reset() {
     ships_.clear();
 }
 
-void Board::Print(bool show_ships) {
-    std::cout << "  ";
+void Board::Print(bool show_ships) const {
+    std::cout << "   ";
     for (uint8_t c = 0; c < SIZE; ++c)
         std::cout << static_cast<char>('A' + c) << " ";
-    std::cout << std::endl;
+    std::cout << "\n";
 
     for (uint8_t r = 0; r < SIZE; ++r) {
+        if (r + 1 < 10) std::cout << " ";
         std::cout << static_cast<int>(r + 1) << " ";
+
         for (uint8_t c = 0; c < SIZE; ++c) {
             CellState state = GetCellState(r, c);
-
             char symbol = '.';
             if (state == CellState::SHIP && show_ships)
                 symbol = 'S';
             else if (state == CellState::HIT)
                 symbol = 'X';
-
             std::cout << symbol << " ";
         }
-        std::cout << std::endl;
+        std::cout << "\n";
     }
 }
 
