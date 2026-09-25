@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(tcp_server LANGUAGES CXX)
+project(battleship LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,7 +17,7 @@ add_executable(battleship_server
     src/server/board.cpp
 )
 
-target_include_directories(battleship PRIVATE src)
+target_include_directories(battleship_server PRIVATE src)
 
 add_executable(test_model
     src/test_model.cpp
@@ -29,13 +29,13 @@ add_executable(test_model
 target_include_directories(test_model PRIVATE src)
 
 if(MSVC)
-    target_compile_options(battleship PRIVATE /W4 /WX)
+    target_compile_options(battleship_server PRIVATE /W4 /WX)
     target_compile_options(test_model PRIVATE /W4 /WX)
 else()
-    target_compile_options(battleship PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_compile_options(battleship_server PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_compile_options(test_model PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
 if(WIN32)
-    target_link_libraries(battleship PRIVATE ws2_32)
+    target_link_libraries(battleship_server PRIVATE ws2_32)
 endif()

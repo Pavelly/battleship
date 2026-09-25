@@ -25,9 +25,9 @@ MSG_ERROR = 0xFF
 
 RESULT_NAMES = {
     0: "MISS",
-    0x01: "HIT",
-    0x02: "SINK",
-    0x03: "ALREADY_SHOT",
+    1: "HIT",
+    2: "SINK",
+    3: "ALREADY_SHOT",
 }
 
 
@@ -42,8 +42,9 @@ class BattleShipClient:
 
         self.my_board = [[0] * 10 for _ in range(10)]
         self.enemy_board = [[0] * 10 for _ in range(10)]
-
         self.lock = threading.Lock()
+
+        self.match_found_event = threading.Event()
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -58,14 +59,11 @@ class BattleShipClient:
         header = self._recv_exact(3)
         if header is None:
             return None
-
         msg_type = header[0]
         length = struct.unpack('>H', header[1:3])[0]
-
         payload = self._recv_exact(length)
         if payload is None:
             return None
-
         return msg_type, payload
 
     def _recv_exact(self, n):
@@ -86,8 +84,8 @@ class BattleShipClient:
             if msg is None:
                 print("\n[Server disconnected]")
                 self.game_over = True
+                self.match_found_event.set()
                 break
-
             msg_type, payload = msg
             self.handle_message(msg_type, payload)
 
@@ -95,86 +93,92 @@ class BattleShipClient:
         with self.lock:
             if msg_type == MSG_GAME_START:
                 print("[Server] Welcome to Battleship!")
+
             elif msg_type == MSG_WAITING:
                 print("[Server] Waiting for opponent...")
+
             elif msg_type == MSG_MATCH_FOUND:
                 print("[Server] Match found!")
+                self.match_found_event.set()
+
             elif msg_type == MSG_PLAYER_NUMBER:
                 self.player_number = payload[0] if payload else 0
                 print(f"[Server] You are Player #{self.player_number}")
+
             elif msg_type == MSG_PLACEMENT_READY:
                 print("[Server] Your ships are placed. Waiting for opponent...")
+
             elif msg_type == MSG_BATTLE_START:
                 print("\n" + "=" * 40)
                 print("BATTLE STARTED")
                 print("=" * 40)
-                self.print_board()
+                self.print_boards()
+
             elif msg_type == MSG_YOUR_TURN:
                 self.my_turn = True
-                print("\n >>> YOUR TURN! Enter shot (e.g., A5): ", end='', flush=True)
+                print("\n>>> YOUR TURN! Enter shot (e.g., A5): ", end='', flush=True)
+
             elif msg_type == MSG_ENEMY_TURN:
                 self.my_turn = False
                 print("\n[Enemy's turn...]")
+
             elif msg_type == MSG_SHOT_RESULT:
                 row, col, result = payload[0], payload[1], payload[2]
                 result_name = RESULT_NAMES.get(result, "UNKNOWN")
                 print(f"\n[Your shot at {self.coord_to_str(row, col)}]: {result_name}")
-
                 if result == 0:
                     self.enemy_board[row][col] = 3
-                elif result in (0x01, 0x02):
+                elif result in (1, 2):
                     self.enemy_board[row][col] = 2
-
                 self.print_boards()
+
             elif msg_type == MSG_ENEMY_SHOT:
                 row, col, result = payload[0], payload[1], payload[2]
                 result_name = RESULT_NAMES.get(result, "UNKNOWN")
                 print(f"\n[Enemy shot at {self.coord_to_str(row, col)}]: {result_name}")
-
                 if result == 0:
-                    self.enemy_board[row][col] = 3
-                elif result in (0x01, 0x02):
-                    self.enemy_board[row][col] = 2
-
+                    self.my_board[row][col] = 3
+                elif result in (1, 2):
+                    self.my_board[row][col] = 2
                 self.print_boards()
+
             elif msg_type == MSG_GAME_OVER:
                 winner = payload[0] if payload else 0
                 reason = payload[1] if len(payload) > 1 else 0
-
                 print("\n" + "=" * 40)
                 if winner == self.player_number:
                     print("YOU WIN!")
                 else:
                     print("YOU LOSE!")
-
                 if reason == 0:
                     print("All enemy ships destroyed!" if winner == self.player_number
                           else "All your ships destroyed!")
                 elif reason == 1:
                     print("Opponent disconnected")
                 print("=" * 40)
-
                 self.game_over = True
+
             elif msg_type == MSG_OPPONENT_DISCONNECTED:
                 print("\n[Server] Opponent disconnected. You win!")
                 self.game_over = True
+
             elif msg_type == MSG_ERROR:
                 error_code = payload[0] if payload else 0
                 print(f"\n[Error] Code: {error_code}")
 
     def send_placement(self):
         ships = [
-            (0, 0, 4, 0),  # 4-палубный горизонтально
-            (2, 0, 3, 0),  # 3-палубный
-            (4, 0, 3, 0),  # 3-палубный
-            (6, 0, 2, 0),  # 2-палубный
-            (8, 0, 2, 0),  # 2-палубный
-            (6, 3, 2, 0),  # 2-палубный
-            (0, 5, 1, 0),  # 1-палубный
-            (2, 4, 1, 0),  # 1-палубный
-            (4, 4, 1, 0),  # 1-палубный
-            (8, 3, 1, 0),  # 1-палубный
-        ]        
+            (0, 0, 4, 0),
+            (2, 0, 3, 0),
+            (4, 0, 3, 0),
+            (6, 0, 2, 0),
+            (8, 0, 2, 0),
+            (6, 3, 2, 0),
+            (0, 5, 1, 0),
+            (2, 4, 1, 0),
+            (4, 4, 1, 0),
+            (8, 3, 1, 0),
+        ]
 
         payload = bytes([len(ships)])
         for row, col, size, orient in ships:
@@ -183,11 +187,11 @@ class BattleShipClient:
         self.send_message(MSG_PLACE_SHIPS, payload)
         print("[Client] Ships placement sent")
 
-        for col, row, size, orient in  ships:
+        for row, col, size, orient in ships:
             for i in range(size):
-                if orient == 0: # HORIZONTAL
+                if orient == 0:  # HORIZONTAL
                     self.my_board[row][col + i] = 1
-                else: # VERTICAL
+                else:  # VERTICAL
                     self.my_board[row + i][col] = 1
 
     def send_shot(self, row, col):
@@ -201,13 +205,11 @@ class BattleShipClient:
         s = s.strip().upper()
         if len(s) < 2:
             return None
-
         col = ord(s[0]) - ord('A')
         try:
             row = int(s[1:]) - 1
         except ValueError:
             return None
-
         if 0 <= row < 10 and 0 <= col < 10:
             return row, col
         return None
@@ -222,10 +224,9 @@ class BattleShipClient:
 
     def _print_board(self, board, show_ships: bool):
         symbols = {0: '.', 1: 'S', 2: 'X', 3: 'o'}
-
-        print("  ", " ".join(chr(ord('A') + c) for c in range(10)))
+        print("  " + " ".join(chr(ord('A') + c) for c in range(10)))
         for r in range(10):
-            row_str = f"{r+1:2d}"
+            row_str = f"{r + 1:2d} "
             for c in range(10):
                 cell = board[r][c]
                 if cell == 1 and not show_ships:
@@ -240,7 +241,13 @@ class BattleShipClient:
         listener = threading.Thread(target=self.listener_thread, daemon=True)
         listener.start()
 
-        time.sleep(0.5)
+        print("Waiting for match...")
+        self.match_found_event.wait(timeout=60)
+
+        if self.game_over:
+            print("Disconnected before match started.")
+            self.sock.close()
+            return
 
         self.send_placement()
 
@@ -252,12 +259,10 @@ class BattleShipClient:
                 try:
                     user_input = input()
                     coords = self.str_to_coord(user_input)
-
                     if coords is None:
                         print("Invalid format. Use: A5, B3, J10")
                         print(">>> YOUR TURN! Enter shot: ", end='', flush=True)
                         continue
-
                     row, col = coords
                     self.send_shot(row, col)
                     self.my_turn = False
@@ -271,6 +276,7 @@ class BattleShipClient:
                 time.sleep(0.1)
 
         self.sock.close()
+
 
 def main():
     host = "localhost"
@@ -289,6 +295,7 @@ def main():
         print(f"Cannot connect to {host}:{port}. Is the server running?")
     except Exception as e:
         print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     main()

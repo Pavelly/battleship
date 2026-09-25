@@ -37,7 +37,7 @@ bool Ship::TryHit(uint8_t row, uint8_t col) {
         uint8_t cell_row, cell_col;
 
         if (orientation_ == Orientation::HORIZONTAL) {
-            cell_col = row_;
+            cell_row = row_;
             cell_col = static_cast<uint8_t>(col_ + i);
         } else {
             cell_row = static_cast<uint8_t>(row_ + i);
@@ -50,7 +50,7 @@ bool Ship::TryHit(uint8_t row, uint8_t col) {
         }
     }
 
-    return true;
+    return false;
 }
 
 bool Ship::IsSunk() const {
