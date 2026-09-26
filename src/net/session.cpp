@@ -50,12 +50,9 @@ void Session::SendSessionMessage(const std::vector<uint8_t> &message) {
     }
 }
 
-void Session::SetGame(std::shared_ptr<Game> game) {
-    game_ = game;
-}
-
-std::shared_ptr<Game> Session::GetGame() const {
-    return game_;
+void Session::SetMessageHandler(IncomingMessageHandler handler) {
+    std::lock_guard<std::mutex> lock(handler_mutex_);
+    handler_ = std::move(handler);
 }
 
 void Session::ProcessIncomingData() {
@@ -72,42 +69,16 @@ void Session::ProcessIncomingData() {
     }
 }
 
-// void Session::HandleMessage(MessageType type, const std::vector<uint8_t>& payload) {
-//     std::cout << "[Session " << id_ << "] Received message type: "
-//               << static_cast<int>(type) 
-//               << ", payload size: " << payload.size() << std::endl;
-    
-//     switch (type) {
-//         case MessageType::SHOT:
-//             if (payload.size() >= 2) {
-//                 uint8_t col = payload[0];
-//                 uint8_t row = payload[1];
-//                 std::cout << "[Session " << id_ << "] Shot at col = "
-//                           << static_cast<int>(col)
-//                           << ", row = " << static_cast<int>(row) << std::endl;
-//             } else {
-//                 std::cerr << "[Session " << id_ << "] Invalid SHOT payload\n";
-//             }
-//             break;
-//         case MessageType::PLACE_SHIPS:
-//             std::cout << "[Session " << id_ << "] Place ships request\n";
-//             // TODO: Logic
-//             break;
-//         default:
-//             std::cout << "[Session " << id_ << "] Unknown message type\n";
-//             break;
-//     }
-// }
-
 void Session::HandleMessage(MessageType type, const std::vector<uint8_t>& payload) {
-    std::cout << "[Session " << id_ << "] Received message type: "
-              << static_cast<int>(type) 
-              << ", payload size: " << payload.size() << std::endl;
-
-    if (game_) {
-        game_->ProcessMessage(player_number_, type, payload);
-        return;
+    IncomingMessageHandler handler;
+    {
+        std::lock_guard<std::mutex> lock(handler_mutex_);
+        handler = handler_;
     }
 
-    std::cout << "[Session " << id_ << "] No game yet, ignoring\n";
+    if (handler)
+        handler(type, payload);
+    else 
+        std::cout << "[Session " << id_ << "] Message type "
+                  << static_cast<int>(type) << " ignored no handler yet\n";
 }

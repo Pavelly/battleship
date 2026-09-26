@@ -209,7 +209,7 @@ void Game::EndGame(int winner, uint8_t reason) {
     phase_ = GamePhase::FINISHED;
 
     std::cout << "[Game] Game over! Player " << winner << " wins (reason = "
-              << static_cast<int>(reason) << std::endl;
+              << static_cast<int>(reason) << ")\n";
 
     MessageWriter game_over(MessageType::GAME_OVER);
     game_over.WriteUInt8(static_cast<uint8_t>(winner));

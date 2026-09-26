@@ -6,11 +6,13 @@
 #include <mutex>
 #include <memory>
 #include <atomic>
-
-class Game;
+#include <functional>
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
+    using IncomingMessageHandler =
+        std::function<void(MessageType, const std::vector<uint8_t>&)>;
+
     explicit Session(SocketType socket);
     ~Session();
 
@@ -19,11 +21,8 @@ public:
 
     void Run();
     void SendSessionMessage(const std::vector<uint8_t>& message);
-    void SetGame(std::shared_ptr<Game> game);
-    std::shared_ptr<Game> GetGame() const;
 
-    void SetPlayerNumber(int num) { player_number_ = num; }
-    int GetPlayerNumber() const { return player_number_; }
+    void SetMessageHandler(IncomingMessageHandler handler);
 
     int GetId() const { return id_; }
     bool IsAlive() const { return alive_.load(); }
@@ -34,9 +33,10 @@ private:
     SocketType socket_;
     std::atomic<bool> alive_;
     std::mutex send_mutex_;
-    std::shared_ptr<Game> game_;
     std::vector<uint8_t> read_buffer_;
-    int player_number_ = 0;
+
+    std::mutex handler_mutex_;
+    IncomingMessageHandler handler_;
 
     void ProcessIncomingData();
     void HandleMessage(MessageType type, const std::vector<uint8_t>& payload);

@@ -109,21 +109,13 @@ void Server::HandleClient(SocketType client_socket) {
     welcome.WriteUInt8(1);
     session->SendSessionMessage(welcome.Finish());
 
-    bool matched = lobby_.TryMatch(session);
-
-    if (matched)
-        std::cout << "[Server] Match created, starting game loop\n";
-
+    lobby_.TryMatch(session);
     session->Run();
-
     lobby_.RemoveFromQueue(session);
 
-    auto game = session->GetGame();
-    if (game) {
-        int player_num = session->GetPlayerNumber();
-        if (player_num > 0) {
-            game->OnPlayerDisconnect(player_num);
-        }
+    if (auto match = lobby_.GetMatch(session->GetId())) {
+        match->game->OnPlayerDisconnect(match->player_number);
+        lobby_.RemoveMatch(session->GetId());
     }
 
     std::cout << "[Server] Client handler finished\n";
