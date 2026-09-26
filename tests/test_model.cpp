@@ -1,4 +1,4 @@
-#include "server/board.h"
+#include "game/board.h"
 #include <iostream>
 #include <cassert>
 

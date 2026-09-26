@@ -1,7 +1,7 @@
 #pragma once
 
-#include "platform.h"
-#include "protocol.h"
+#include "net/platform.h"
+#include "common/protocol.h"
 #include <vector>
 #include <mutex>
 #include <memory>

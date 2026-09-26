@@ -1,4 +1,4 @@
-#include "board.h"
+#include "game/board.h"
 #include <iostream>
 #include <algorithm>
 

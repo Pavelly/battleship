@@ -1,6 +1,6 @@
 #include "lobby.h"
 #include "game.h"
-#include "protocol.h"
+#include "common/protocol.h"
 #include <iostream>
 
 Lobby::Lobby() {}

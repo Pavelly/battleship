@@ -1,5 +1,5 @@
 #include "game.h"
-#include "protocol.h"
+#include "common/protocol.h"
 #include <iostream>
 
 Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2) 

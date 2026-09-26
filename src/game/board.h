@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ship.h"
-#include "protocol.h"
+#include "common/protocol.h"
 #include <vector>
 #include <optional>
 

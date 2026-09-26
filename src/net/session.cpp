@@ -1,5 +1,5 @@
-#include "session.h"
-#include "game.h"
+#include "net/session.h"
+#include "server/game.h"
 #include <iostream>
 #include <cstring>
 

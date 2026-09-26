@@ -1,7 +1,7 @@
 #pragma once
 
-#include "session.h"
-#include "board.h"
+#include "net/session.h"
+#include "game/board.h"
 #include <memory>
 #include <mutex>
 

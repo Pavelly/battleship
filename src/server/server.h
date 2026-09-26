@@ -1,8 +1,8 @@
 #pragma once
 
-#include "platform.h"
-#include "protocol.h"
-#include "lobby.h"
+#include "net/platform.h"
+#include "common/protocol.h"
+#include "server/lobby.h"
 #include <cstdint>
 #include <string>
 
