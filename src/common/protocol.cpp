@@ -1,4 +1,4 @@
-#include "protocol.h"
+#include "common/protocol.h"
 #include <cstring>
 #include <stdexcept>
 
