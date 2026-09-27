@@ -14,7 +14,7 @@ Session::Session(SocketType socket)
 }
 
 Session::~Session() {
-    CloseSocket(socket_);
+    if (socket_ != INVALID_SOCK) CloseSocket(socket_);
     std::cout << "[Session " << id_ << "] Destroyed\n";
 }
 

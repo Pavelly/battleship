@@ -20,3 +20,8 @@ add_executable(test_auth test_auth.cpp)
 target_link_libraries(test_auth PRIVATE battleship_db)
 set_strict_warnings(test_auth)
 add_test(NAME auth_tests COMMAND test_auth)
+
+add_executable(test_online test_online.cpp)
+target_link_libraries(test_online PRIVATE battleship_net)
+set_strict_warnings(test_online)
+add_test(NAME online_tests COMMAND test_online)

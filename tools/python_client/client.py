@@ -42,6 +42,7 @@ AUTH_ERRORS = {
     3: "Malformed request",
     4: "Authentication required first",
     5: "Invalid username (3-16 chars: latin, digits, _)",
+    6: "This account is already online",
 }
 
 

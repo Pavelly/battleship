@@ -123,6 +123,7 @@ void Server::HandleClient(SocketType client_socket) {
         match->game->OnPlayerDisconnect(match->player_number);
         lobby_.RemoveMatch(session->GetId());
     }
+    online_.Release(session->GetUserId(), session);
 
     std::cout << "[Server] Client handler finished\n";
 }
@@ -145,6 +146,13 @@ void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType typ
 
     switch(out.result) {
         case AuthService::Result::OK: {
+            if (!online_.TryAcquire(out.user.id, session)) {
+                std::cout << "[Server] Duplicate login rejected: '" << out.user.username
+                          << "' (session " << session->GetId() << ")\n";
+                SendAuthFail(session, static_cast<uint8_t>(AuthError::ALREADY_ONLINE));
+                break;
+            }
+
             session->SetUser(out.user.id, out.user.username);
 
             MessageWriter ok(MessageType::AUTH_OK);
@@ -180,28 +188,3 @@ void Server::SendAuthFail(const std::shared_ptr<Session>& session, uint16_t code
     fail.WriteUInt8(code);
     session->SendSessionMessage(fail.Finish());
 }
-
-// void Server::HandleMessage(SocketType client_socket, MessageType type, const std::vector<uint8_t> &payload) {
-//     std::cout << "Received message type: " << static_cast<int>(type)
-//               << ", payload size: " << payload.size() << std::endl;
-
-//     switch (type) {
-//     case MessageType::SHOT: {
-//         if (payload.size() >= 2) {
-//             uint8_t col = payload[0];
-//             uint8_t row = payload[1];
-//             std::cout << "Shot at column " << static_cast<int>(col)
-//                       << ", row " << static_cast<int>(row) << std::endl;
-            
-//             MessageWriter result(MessageType::SHOT_RESULT);
-//             result.WriteUInt8(static_cast<uint8_t>(ShotResult::HIT));
-//             auto result_msg = result.Finish();
-//             send(client_socket, reinterpret_cast<const char*>(result_msg.data()), static_cast<int>(result_msg.size()), 0);
-//         }
-//         break;
-//     }
-//     default:
-//         std::cerr << "Unknown message type: " << static_cast<int>(type) << std::endl;
-//         break;
-//     }
-// }
