@@ -7,6 +7,7 @@
 #include <memory>
 #include <atomic>
 #include <functional>
+#include <string>
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
@@ -24,6 +25,11 @@ public:
 
     void SetMessageHandler(IncomingMessageHandler handler);
 
+    void SetUser(int64_t id, std::string username);
+    bool IsAuthenticated() const { return user_id_ != -1; }
+    int64_t GetUserId() const { return user_id_; }
+    const std::string& GetUsername() const { return username_; }
+
     int GetId() const { return id_; }
     bool IsAlive() const { return alive_.load(); }
 private:
@@ -37,6 +43,9 @@ private:
 
     std::mutex handler_mutex_;
     IncomingMessageHandler handler_;
+
+    int64_t user_id_ = -1;
+    std::string username_;
 
     void ProcessIncomingData();
     void HandleMessage(MessageType type, const std::vector<uint8_t>& payload);

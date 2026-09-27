@@ -8,6 +8,7 @@
 #include <optional>
 
 class Game;
+class Database;
 
 class Lobby {
 public:
@@ -16,12 +17,15 @@ public:
         int player_number;
     };
 
+    explicit Lobby(Database& db);
+
     bool TryMatch(std::shared_ptr<Session> session);
     void RemoveFromQueue(std::shared_ptr<Session> session);
 
     std::optional<MatchRecord> GetMatch(int session_id);
     void RemoveMatch(int session_id);
 private:
+    Database& db_;
     std::mutex mutex_;
     std::queue<std::shared_ptr<Session>> waiting_queue_;
     std::unordered_map<int, MatchRecord> active_matches_;

@@ -15,3 +15,8 @@ add_executable(test_crypto test_crypto.cpp)
 target_link_libraries(test_crypto PRIVATE battleship_common)
 set_strict_warnings(test_crypto)
 add_test(NAME crypto_tests COMMAND test_crypto)
+
+add_executable(test_auth test_auth.cpp)
+target_link_libraries(test_auth PRIVATE battleship_db)
+set_strict_warnings(test_auth)
+add_test(NAME auth_tests COMMAND test_auth)

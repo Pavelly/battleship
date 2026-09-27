@@ -1,10 +1,12 @@
-#include "game.h"
+#include "server/game.h"
+#include "db/database.h"
 #include "common/protocol.h"
 #include <iostream>
 
-Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2) 
+Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db) 
     : player1_(player1)
     , player2_(player2) 
+    , db_(db)
     , phase_(GamePhase::PLACEMENT) 
     , current_turn_(1)
     , p1_ready_(false)
@@ -215,4 +217,20 @@ void Game::EndGame(int winner, uint8_t reason) {
     game_over.WriteUInt8(static_cast<uint8_t>(winner));
     game_over.WriteUInt8(reason);
     SendToBoth(game_over.Finish());
+
+    const int64_t p1_id = player1_->GetUserId();
+    const int64_t p2_id = player2_->GetUserId();
+
+    if (p1_id == -1 || p2_id == -1) {
+        std::cerr << "[Game] Cannot record result: player not authenticated\n";
+        return;
+    }
+
+    const int64_t winner_id = (winner == 1) ? p1_id : p2_id;
+
+    if (db_.RecordGameResult(p1_id, p2_id, winner_id)) {
+        std::cout << "[Game] Result saved to DB (winner id = " << winner_id << ")\n";
+    } else {
+        std::cerr << "[Game] Failed to save result to DB\n";
+    }
 }

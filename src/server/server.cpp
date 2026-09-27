@@ -6,8 +6,11 @@
 #include <vector>
 #include <memory>
 
-Server::Server(uint16_t port) 
+Server::Server(uint16_t port, Database& db) 
     : port_(port)
+    , db_(db)
+    , auth_(db_)
+    , lobby_(db_)
     , listen_socket_(INVALID_SOCK)
     , running_(false) {}
 
@@ -109,10 +112,13 @@ void Server::HandleClient(SocketType client_socket) {
     welcome.WriteUInt8(1);
     session->SendSessionMessage(welcome.Finish());
 
-    lobby_.TryMatch(session);
-    session->Run();
-    lobby_.RemoveFromQueue(session);
+    session->SetMessageHandler([this, session](MessageType t, const std::vector<uint8_t>& p) {
+        HandleAuthMessage(session, t, p); 
+    });
 
+    session->Run();
+
+    lobby_.RemoveFromQueue(session);
     if (auto match = lobby_.GetMatch(session->GetId())) {
         match->game->OnPlayerDisconnect(match->player_number);
         lobby_.RemoveMatch(session->GetId());
@@ -121,27 +127,81 @@ void Server::HandleClient(SocketType client_socket) {
     std::cout << "[Server] Client handler finished\n";
 }
 
-void Server::HandleMessage(SocketType client_socket, MessageType type, const std::vector<uint8_t> &payload) {
-    std::cout << "Received message type: " << static_cast<int>(type)
-              << ", payload size: " << payload.size() << std::endl;
-
-    switch (type) {
-    case MessageType::SHOT: {
-        if (payload.size() >= 2) {
-            uint8_t col = payload[0];
-            uint8_t row = payload[1];
-            std::cout << "Shot at column " << static_cast<int>(col)
-                      << ", row " << static_cast<int>(row) << std::endl;
-            
-            MessageWriter result(MessageType::SHOT_RESULT);
-            result.WriteUInt8(static_cast<uint8_t>(ShotResult::HIT));
-            auto result_msg = result.Finish();
-            send(client_socket, reinterpret_cast<const char*>(result_msg.data()), static_cast<int>(result_msg.size()), 0);
-        }
-        break;
+void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType type, const std::vector<uint8_t>& payload) {
+    if (type != MessageType::AUTH_REGISTER && type != MessageType::AUTH_LOGIN) {
+        SendAuthFail(session, static_cast<uint8_t>(AuthError::AUTH_REQUIRED));
+        return;
     }
-    default:
-        std::cerr << "Unknown message type: " << static_cast<int>(type) << std::endl;
-        break;
+
+    std::string name, pass;
+    if (!AuthService::ParseCredentials(payload, name, pass)) {
+        SendAuthFail(session, static_cast<uint8_t>(AuthError::AUTH_REQUIRED));
+        return;
+    }
+
+    AuthService::Outcome out = (type == MessageType::AUTH_REGISTER)
+        ? auth_.Register(name, pass)
+        : auth_.Login(name, pass);
+
+    switch(out.result) {
+        case AuthService::Result::OK: {
+            session->SetUser(out.user.id, out.user.username);
+
+            MessageWriter ok(MessageType::AUTH_OK);
+            ok.WriteUInt8(static_cast<uint8_t>(out.user.username.size()));
+            ok.WriteBytes(out.user.username.data(), out.user.username.size());
+            ok.WriteUInt32(static_cast<uint32_t>(out.user.wins));
+            ok.WriteUInt32(static_cast<uint32_t>(out.user.losses));
+            session->SendSessionMessage(ok.Finish());
+
+            std::cout << "[Server] User '" << out.user.username
+                      << "' authenticated (session " << session->GetId() << ")\n";
+            
+            lobby_.TryMatch(session);
+            break;
+        }
+        case AuthService::Result::BAD_CREDENTIALS:
+            SendAuthFail(session, static_cast<uint8_t>(AuthError::BAD_CRIDENTIALS));
+            break;
+        case AuthService::Result::USERNAME_TAKEN:
+            SendAuthFail(session, static_cast<uint8_t>(AuthError::USERNAME_TAKEN));
+            break;
+        case AuthService::Result::USERNAME_INVALID:
+            SendAuthFail(session, static_cast<uint8_t>(AuthError::USERNAME_INVALID));
+            break;
+        case AuthService::Result::INVALID_PAYLOAD:
+            SendAuthFail(session, static_cast<uint8_t>(AuthError::INVALID_PAYLOAD));
+            break;
     }
 }
+
+void Server::SendAuthFail(const std::shared_ptr<Session>& session, uint16_t code) {
+    MessageWriter fail(MessageType::AUTH_FAIL);
+    fail.WriteUInt8(code);
+    session->SendSessionMessage(fail.Finish());
+}
+
+// void Server::HandleMessage(SocketType client_socket, MessageType type, const std::vector<uint8_t> &payload) {
+//     std::cout << "Received message type: " << static_cast<int>(type)
+//               << ", payload size: " << payload.size() << std::endl;
+
+//     switch (type) {
+//     case MessageType::SHOT: {
+//         if (payload.size() >= 2) {
+//             uint8_t col = payload[0];
+//             uint8_t row = payload[1];
+//             std::cout << "Shot at column " << static_cast<int>(col)
+//                       << ", row " << static_cast<int>(row) << std::endl;
+            
+//             MessageWriter result(MessageType::SHOT_RESULT);
+//             result.WriteUInt8(static_cast<uint8_t>(ShotResult::HIT));
+//             auto result_msg = result.Finish();
+//             send(client_socket, reinterpret_cast<const char*>(result_msg.data()), static_cast<int>(result_msg.size()), 0);
+//         }
+//         break;
+//     }
+//     default:
+//         std::cerr << "Unknown message type: " << static_cast<int>(type) << std::endl;
+//         break;
+//     }
+// }

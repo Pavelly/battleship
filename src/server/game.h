@@ -5,6 +5,8 @@
 #include <memory>
 #include <mutex>
 
+class Database;
+
 enum class GamePhase {
     PLACEMENT,
     BATTLE,
@@ -13,7 +15,7 @@ enum class GamePhase {
 
 class Game : public std::enable_shared_from_this<Game> {
 public:
-    Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2);
+    Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db);
 
     void ProcessMessage(int player_num, MessageType type, const std::vector<uint8_t>& payload);
     void OnPlayerDisconnect(int player_num);
@@ -23,6 +25,7 @@ public:
 private:
     std::shared_ptr<Session> player1_;
     std::shared_ptr<Session> player2_;
+    Database& db_;
 
     Board board1_;
     Board board2_;

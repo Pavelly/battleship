@@ -3,17 +3,27 @@
 #include "common/protocol.h"
 #include <iostream>
 
-bool Lobby::TryMatch(std::shared_ptr<Session> session) {
+Lobby::Lobby(Database &db)
+    : db_(db) {}
+
+bool Lobby::TryMatch(std::shared_ptr<Session> session)
+{
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (waiting_queue_.empty()) {
         waiting_queue_.push(session);
         std::cout << "[Lobby] Player " << session->GetId() << " added to queue\n";
 
+        session->SetMessageHandler([](MessageType t, const std::vector<uint8_t>&) {
+            std::cout << "[Lobby] Ignoring message type " << static_cast<int>(t)
+                    << ": player is in queue\n";
+        });
+
         MessageWriter msg(MessageType::WAITING);
         session->SendSessionMessage(msg.Finish());
         return false;
     }
+
 
     auto player1 = waiting_queue_.front();
     waiting_queue_.pop();
@@ -22,7 +32,7 @@ bool Lobby::TryMatch(std::shared_ptr<Session> session) {
     std::cout << "[Lobby] Match found! Player " << player1->GetId()
               << " vs Player " << player2->GetId() << std::endl;
 
-    auto game = std::make_shared<Game>(player1, player2);
+    auto game = std::make_shared<Game>(player1, player2, db_);
     std::weak_ptr<Game> game_weak = game;
 
     player1->SetMessageHandler([game_weak](MessageType t, const std::vector<uint8_t>& p) {

@@ -55,6 +55,11 @@ void Session::SetMessageHandler(IncomingMessageHandler handler) {
     handler_ = std::move(handler);
 }
 
+void Session::SetUser(int64_t id, std::string username) {
+    user_id_ = id;
+    username_ = std::move(username);
+}
+
 void Session::ProcessIncomingData() {
     while (true) {
         MessageType type;

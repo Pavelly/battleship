@@ -3,6 +3,7 @@ import struct
 import threading
 import sys
 import time
+import getpass
 
 MSG_SHOT = 0x01
 MSG_SHOT_RESULT = 0x02
@@ -21,6 +22,11 @@ MSG_PLACEMENT_READY = 0x17
 MSG_BATTLE_START = 0x18
 MSG_OPPONENT_DISCONNECTED = 0x19
 
+MSG_AUTH_REGISTER = 0x1E
+MSG_AUTH_LOGIN = 0x1F
+MSG_AUTH_OK = 0x20
+MSG_AUTH_FAIL = 0x21
+
 MSG_ERROR = 0xFF
 
 RESULT_NAMES = {
@@ -28,6 +34,14 @@ RESULT_NAMES = {
     1: "HIT",
     2: "SINK",
     3: "ALREADY_SHOT",
+}
+
+AUTH_ERRORS = {
+    1: "Wrong username or password",
+    2: "Username already taken",
+    3: "Malformed request",
+    4: "Authentication required first",
+    5: "Invalid username (3-16 chars: latin, digits, _)",
 }
 
 
@@ -39,6 +53,9 @@ class BattleShipClient:
         self.player_number = 0
         self.my_turn = False
         self.game_over = False
+
+        self.auth_event = threading.Event()
+        self.auth_failed = False
 
         self.my_board = [[0] * 10 for _ in range(10)]
         self.enemy_board = [[0] * 10 for _ in range(10)]
@@ -88,6 +105,12 @@ class BattleShipClient:
                 break
             msg_type, payload = msg
             self.handle_message(msg_type, payload)
+
+    def send_credentials(self, msg_type, username, password):
+        name_b = username.encode()
+        pass_b = password.encode()
+        payload = bytes([len(name_b)]) + name_b + bytes([len(pass_b)]) + pass_b
+        self.send_message(msg_type, payload)
 
     def handle_message(self, msg_type, payload):
         with self.lock:
@@ -160,6 +183,20 @@ class BattleShipClient:
 
             elif msg_type == MSG_OPPONENT_DISCONNECTED:
                 print("\n[Server] Opponent disconnected. You win!")
+                self.game_over = True
+
+            elif msg_type == MSG_AUTH_OK:
+                name_len = payload[0]
+                name = payload[1:1 + name_len].decode()
+                wins, losses = struct.unpack('<II', payload[1 + name_len:1 + name_len + 8])
+                print(f"[Server] Authenticated as {name} | wins: {wins}, losses: {losses}")
+                self.auth_event.set()
+
+            elif msg_type == MSG_AUTH_FAIL:
+                code = payload[0] if payload else 0
+                print(f"[Server] Auth failed: {AUTH_ERRORS.get(code, 'unknown code')}")
+                self.auth_failed = True
+                self.auth_event.set()
                 self.game_over = True
 
             elif msg_type == MSG_ERROR:
@@ -240,6 +277,19 @@ class BattleShipClient:
 
         listener = threading.Thread(target=self.listener_thread, daemon=True)
         listener.start()
+
+        mode = input("Login or register? [l/r]: ").strip().lower()
+        username = input("Username: ").strip()
+        password = getpass.getpass("Password: ")
+
+        self.send_credentials(
+            MSG_AUTH_REGISTER if mode == 'r' else MSG_AUTH_LOGIN,
+            username, password)
+
+        if not self.auth_event.wait(timeout=10) or self.auth_failed:
+            print("Authentication failed, exiting.")
+            self.sock.close()
+            return
 
         print("Waiting for match...")
         self.match_found_event.wait(timeout=60)
