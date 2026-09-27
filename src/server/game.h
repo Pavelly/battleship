@@ -39,6 +39,7 @@ private:
 
     void HandlePlaceShips(int player_num, const std::vector<uint8_t>& payload);
     void HandleShot(int player_num, const std::vector<uint8_t>& payload);
+    void HandlePlaceRandom(int player_num);
 
     void SendToPlayer(int player_num, const std::vector<uint8_t>& msg);
     void SendToBoth(const std::vector<uint8_t>& msg);

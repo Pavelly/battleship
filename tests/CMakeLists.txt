@@ -1,9 +1,6 @@
-add_executable(test_model
-    test_model.cpp
-)
+add_executable(test_model test_model.cpp)
 target_link_libraries(test_model PRIVATE battleship_game)
 set_strict_warnings(test_model)
-
 add_test(NAME model_tests COMMAND test_model)
 
 add_executable(test_db test_db.cpp)
@@ -25,3 +22,8 @@ add_executable(test_online test_online.cpp)
 target_link_libraries(test_online PRIVATE battleship_net)
 set_strict_warnings(test_online)
 add_test(NAME online_tests COMMAND test_online)
+
+add_executable(test_random test_random.cpp)
+target_link_libraries(test_random PRIVATE battleship_game)
+set_strict_warnings(test_random)
+add_test(NAME random_tests COMMAND test_random)

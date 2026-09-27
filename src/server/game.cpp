@@ -1,7 +1,9 @@
 #include "server/game.h"
 #include "db/database.h"
+#include "game/random_fleet.h"
 #include "common/protocol.h"
 #include <iostream>
+#include <random>
 
 Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db) 
     : player1_(player1)
@@ -27,6 +29,9 @@ void Game::ProcessMessage(int player_num, MessageType type, const std::vector<ui
     switch (type) {
         case MessageType::PLACE_SHIPS:
             HandlePlaceShips(player_num, payload);
+            break;
+        case MessageType::PLACE_RANDOM:
+            HandlePlaceRandom(player_num);
             break;
         case MessageType::SHOT:
             HandleShot(player_num, payload);
@@ -115,6 +120,9 @@ void Game::HandlePlaceShips(int player_num, const std::vector<uint8_t> &payload)
 
     if (p1_ready_ && p2_ready_)
         StartBattle();
+    else
+        std::cout << "[Game] Fleet accepted from player " << player_num
+                  << ", waiting for the second fleet..." << std::endl;
 }
 
 void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
@@ -178,6 +186,56 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
         MessageWriter your_turn(MessageType::YOUR_TURN);
         SendToPlayer(player_num, your_turn.Finish());
     }
+}
+
+void Game::HandlePlaceRandom(int player_num) {
+    if (phase_ != GamePhase::PLACEMENT) {
+        std::cerr << "[Game] PLACE_RANDOM in wrong phase\n";
+        return;
+    }
+    if ((player_num == 1 && p1_ready_) || (player_num == 2 && p2_ready_)) {
+        std::cerr << "[Game] Player " << player_num << " already ready\n";
+        return;
+    }
+
+    Board& board = (player_num == 1) ? board1_ : board2_;
+
+    std::mt19937 rng(std::random_device{}());
+    const auto specs = PlaceRandomFleet(board, rng);
+
+    if (specs.empty()) {
+        std::cerr << "[Game] Random fleet generation failed\n";
+        MessageWriter err(MessageType::ERROR_MSG);
+        err.WriteUInt8(1);
+        SendToPlayer(player_num, err.Finish());
+        return;
+    }
+
+    MessageWriter ships(MessageType::OWN_SHIPS);
+    ships.WriteUInt8(static_cast<uint8_t>(specs.size()));
+    for (const auto& s : specs) {
+        ships.WriteUInt8(s.row);
+        ships.WriteUInt8(s.col);
+        ships.WriteUInt8(s.size);
+        ships.WriteUInt8(static_cast<uint8_t>(s.orientation));
+    }
+    SendToPlayer(player_num, ships.Finish());
+
+    if (player_num == 1) 
+        p1_ready_ = true;
+    else 
+        p2_ready_ = true;
+
+    std::cout << "[Game] Player " << player_num << " placed random fleet\n";
+
+    MessageWriter ready(MessageType::PLACEMENT_READY);
+    SendToPlayer(player_num, ready.Finish());
+
+    if (p1_ready_ && p2_ready_)
+        StartBattle();
+    else
+        std::cout << "[Game] Fleet accepted from player " << player_num
+                  << ", waiting for the second fleet..." << std::endl;
 }
 
 void Game::SendToPlayer(int player_num, const std::vector<uint8_t> &msg) {

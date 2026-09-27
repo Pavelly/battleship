@@ -11,6 +11,7 @@ set_strict_warnings(battleship_common)
 add_library(battleship_game STATIC
     game/ship.cpp
     game/board.cpp
+    game/random_fleet.cpp
 )
 target_include_directories(battleship_game PUBLIC ${SRC_ROOT})
 target_link_libraries(battleship_game PUBLIC battleship_common)

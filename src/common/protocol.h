@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-constexpr uint8_t PROTOCOL_VER = 0x02;
+constexpr uint8_t PROTOCOL_VER = 0x03;
 
 enum class MessageType : uint8_t {
     SHOT                    = 0x01,
@@ -29,6 +29,9 @@ enum class MessageType : uint8_t {
     AUTH_LOGIN              = 0x1F,
     AUTH_OK                 = 0x20,
     AUTH_FAIL               = 0x21,
+
+    PLACE_RANDOM            = 0x22,
+    OWN_SHIPS               = 0x23,
 
     ERROR_MSG               = 0xFF
 };

@@ -5,7 +5,7 @@ import sys
 import time
 import getpass
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 MSG_SHOT = 0x01
 MSG_SHOT_RESULT = 0x02
@@ -23,6 +23,9 @@ MSG_ENEMY_SHOT = 0x16
 MSG_PLACEMENT_READY = 0x17
 MSG_BATTLE_START = 0x18
 MSG_OPPONENT_DISCONNECTED = 0x19
+
+MSG_PLACE_RANDOM = 0x22
+MSG_OWN_SHIPS = 0x23
 
 MSG_AUTH_REGISTER = 0x1E
 MSG_AUTH_LOGIN = 0x1F
@@ -66,6 +69,9 @@ class BattleShipClient:
         self.lock = threading.Lock()
 
         self.match_found_event = threading.Event()
+        self.welcome_event = threading.Event()
+        self.placement_ready_event = threading.Event() 
+        self.battle_start_event = threading.Event()
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -105,7 +111,10 @@ class BattleShipClient:
             if msg is None:
                 print("\n[Server disconnected]")
                 self.game_over = True
+                self.welcome_event.set()
                 self.match_found_event.set()
+                self.placement_ready_event.set()
+                self.battle_start_event.set()
                 break
             msg_type, payload = msg
             self.handle_message(msg_type, payload)
@@ -121,9 +130,13 @@ class BattleShipClient:
             if msg_type == MSG_GAME_START:
                 version = payload[0] if payload else 0
                 if version != PROTOCOL_VERSION:
-                    print(f"[Server] WARNING: server protocol v{version}, "
-                          f"client expects v{PROTOCOL_VERSION}")
+                    print(f"[Server] Protocol version mismatch: server v{version}, "
+                        f"client v{PROTOCOL_VERSION}. Refusing to connect.")
+                    self.game_over = True
+                    self.welcome_event.set()
+                    return
                 print("[Server] Welcome to Battleship!")
+                self.welcome_event.set()
 
             elif msg_type == MSG_WAITING:
                 print("[Server] Waiting for opponent...")
@@ -143,9 +156,11 @@ class BattleShipClient:
                 print(f"[Server] You are Player #{self.player_number}")
 
             elif msg_type == MSG_PLACEMENT_READY:
-                print("[Server] Your ships are placed. Waiting for opponent...")
+                print("[Server] Your fleet is accepted.")
+                self.placement_ready_event.set()
 
             elif msg_type == MSG_BATTLE_START:
+                self.battle_start_event.set()
                 print("\n" + "=" * 40)
                 print("BATTLE STARTED")
                 print("=" * 40)
@@ -193,10 +208,14 @@ class BattleShipClient:
                 elif reason == 1:
                     print("Opponent disconnected")
                 print("=" * 40)
+                self.placement_ready_event.set()
+                self.battle_start_event.set()
                 self.game_over = True
 
             elif msg_type == MSG_OPPONENT_DISCONNECTED:
                 print("\n[Server] Opponent disconnected. You win!")
+                self.placement_ready_event.set()
+                self.battle_start_event.set()
                 self.game_over = True
 
             elif msg_type == MSG_AUTH_OK:
@@ -212,6 +231,20 @@ class BattleShipClient:
                 self.auth_failed = True
                 self.auth_event.set()
                 self.game_over = True
+
+            elif msg_type == MSG_OWN_SHIPS:
+                count = payload[0]
+                print(f"[Server] Your fleet ({count} ships):")
+                for i in range(count):
+                    row, col, size, orient = payload[1 + i * 4: 5 + i * 4]
+                    for k in range(size):
+                        if orient == 0:   # HORIZONTAL
+                            self.my_board[row][col + k] = 1
+                        else:             # VERTICAL
+                            self.my_board[row + k][col] = 1
+                    print(f"  {self.coord_to_str(row, col)} size={size} "
+                        f"{'H' if orient == 0 else 'V'}")
+                self.print_boards()
 
             elif msg_type == MSG_ERROR:
                 error_code = payload[0] if payload else 0
@@ -290,43 +323,50 @@ class BattleShipClient:
 
     def run(self):
         self.connect()
-
         listener = threading.Thread(target=self.listener_thread, daemon=True)
         listener.start()
+
+        if not self.welcome_event.wait(timeout=10) or self.game_over:
+            print("No welcome from server or version mismatch, exiting.")
+            self.sock.close()
+            return
 
         mode = input("Login or register? [l/r]: ").strip().lower()
         username = input("Username: ").strip()
         password = getpass.getpass("Password: ")
-
         self.send_credentials(
             MSG_AUTH_REGISTER if mode == 'r' else MSG_AUTH_LOGIN,
             username, password)
-
         if not self.auth_event.wait(timeout=10) or self.auth_failed:
             print("Authentication failed, exiting.")
             self.sock.close()
             return
 
         print("Waiting for match...")
-        if not self.match_found_event.wait(timeout=60):
-            print("Timeout: no match found within 60 s, exiting.")
-            self.sock.close()
-            return
-        if self.game_over:
-            print("Disconnected before match started.")
+        if not self.match_found_event.wait(timeout=60) or self.game_over:
+            print("No match found, exiting.")
             self.sock.close()
             return
 
-        if self.game_over:
-            print("Disconnected before match started.")
+        mode = input("Fleet placement: [r]andom or [f]ixed? [r]: ").strip().lower() or 'r'
+        if mode == 'r':
+            self.send_message(MSG_PLACE_RANDOM)
+            print("[Client] Requested random fleet")
+        else:
+            self.send_placement()
+
+        if not self.placement_ready_event.wait(timeout=10) or self.game_over:
+            print("Placement not confirmed, exiting.")
             self.sock.close()
             return
 
-        self.send_placement()
+        print("[Client] Waiting for opponent's fleet...")
+        if not self.battle_start_event.wait(timeout=300) or self.game_over:
+            print("Battle did not start (opponent left or timeout), exiting.")
+            self.sock.close()
+            return
 
-        print("\nWaiting for battle to start...")
         print("When it's your turn, enter coordinates like: A5, B3, J10\n")
-
         while not self.game_over:
             if self.my_turn:
                 try:
@@ -347,7 +387,6 @@ class BattleShipClient:
                     break
             else:
                 time.sleep(0.1)
-
         self.sock.close()
 
 
