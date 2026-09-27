@@ -23,7 +23,20 @@ enum class MessageType : uint8_t {
     BATTLE_START = 0x18,
     OPPONENT_DISCONNECTED = 0x19,
 
+    AUTH_REGISTER = 0x1E,
+    AUTH_LOGIN = 0x1F,
+    AUTH_OK = 0x20,
+    AUTH_FAIL = 0x21,
+
     ERROR_MSG = 0xFF
+};
+
+enum class AuthError : uint8_t {
+    BAD_CRIDENTIALS = 0x01,
+    USERNAME_TAKEN = 0x02,
+    INVALID_PAYLOAD = 0x03,
+    AUTH_REQUIRED = 0x04,
+    USERNAME_INVALID = 0x05
 };
 
 enum class ShotResult : uint8_t {
