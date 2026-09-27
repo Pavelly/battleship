@@ -29,8 +29,13 @@ bool Lobby::TryMatch(std::shared_ptr<Session> session)
     waiting_queue_.pop();
     auto player2 = session;
 
-    std::cout << "[Lobby] Match found! Player " << player1->GetId()
-              << " vs Player " << player2->GetId() << std::endl;
+    const std::string& name1 = player1->GetUsername();
+    const std::string& name2 = player2->GetUsername();
+
+    std::cout << "[Lobby] Match found! " << player1->GetUsername()
+              << " (session " << player1->GetId() << ") vs "
+              << player2->GetUsername()
+              << " (session " << player2->GetId() << ")\n";
 
     auto game = std::make_shared<Game>(player1, player2, db_);
     std::weak_ptr<Game> game_weak = game;
@@ -45,9 +50,19 @@ bool Lobby::TryMatch(std::shared_ptr<Session> session)
     active_matches_[player1->GetId()] = MatchRecord{game, 1};
     active_matches_[player2->GetId()] = MatchRecord{game, 2};
 
-    MessageWriter found(MessageType::MATCH_FOUND);
-    player1->SendSessionMessage(found.Finish());
-    player2->SendSessionMessage(found.Finish());
+    MessageWriter found1(MessageType::MATCH_FOUND);
+    found1.WriteUInt8(static_cast<uint8_t>(name2.size()));
+    found1.WriteBytes(name2.data(), name2.size());
+    player1->SendSessionMessage(found1.Finish());
+
+    MessageWriter found2(MessageType::MATCH_FOUND);
+    found2.WriteUInt8(static_cast<uint8_t>(name1.size()));
+    found2.WriteBytes(name1.data(), name1.size());
+    player2->SendSessionMessage(found2.Finish());
+
+    // MessageWriter found(MessageType::MATCH_FOUND);
+    // player1->SendSessionMessage(found.Finish());
+    // player2->SendSessionMessage(found.Finish());
 
     MessageWriter num1(MessageType::PLAYER_NUMBER);
     num1.WriteUInt8(1);

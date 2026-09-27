@@ -5,6 +5,8 @@ import sys
 import time
 import getpass
 
+PROTOCOL_VERSION = 2
+
 MSG_SHOT = 0x01
 MSG_SHOT_RESULT = 0x02
 MSG_PLACE_SHIPS = 0x03
@@ -60,6 +62,7 @@ class BattleShipClient:
 
         self.my_board = [[0] * 10 for _ in range(10)]
         self.enemy_board = [[0] * 10 for _ in range(10)]
+        self.opponent_name = ""
         self.lock = threading.Lock()
 
         self.match_found_event = threading.Event()
@@ -116,13 +119,23 @@ class BattleShipClient:
     def handle_message(self, msg_type, payload):
         with self.lock:
             if msg_type == MSG_GAME_START:
+                version = payload[0] if payload else 0
+                if version != PROTOCOL_VERSION:
+                    print(f"[Server] WARNING: server protocol v{version}, "
+                          f"client expects v{PROTOCOL_VERSION}")
                 print("[Server] Welcome to Battleship!")
 
             elif msg_type == MSG_WAITING:
                 print("[Server] Waiting for opponent...")
 
             elif msg_type == MSG_MATCH_FOUND:
-                print("[Server] Match found!")
+                if payload:
+                    name_len = payload[0]
+                    self.opponent_name = payload[1:1 + name_len].decode(
+                        'utf-8', errors='replace')
+                    print(f"[Server] Match found! Your opponent: {self.opponent_name}")
+                else:
+                    print("[Server] Match found!")
                 self.match_found_event.set()
 
             elif msg_type == MSG_PLAYER_NUMBER:
@@ -256,7 +269,9 @@ class BattleShipClient:
         print("\n" + "=" * 50)
         print("YOUR FIELD:")
         self._print_board(self.my_board, show_ships=True)
-        print("\nENEMY FIELD:")
+        enemy_title = (f"ENEMY FIELD ({self.opponent_name}):"
+                       if self.opponent_name else "ENEMY FIELD:")
+        print("\n" + enemy_title)
         self._print_board(self.enemy_board, show_ships=False)
         print("=" * 50)
 
@@ -293,7 +308,14 @@ class BattleShipClient:
             return
 
         print("Waiting for match...")
-        self.match_found_event.wait(timeout=60)
+        if not self.match_found_event.wait(timeout=60):
+            print("Timeout: no match found within 60 s, exiting.")
+            self.sock.close()
+            return
+        if self.game_over:
+            print("Disconnected before match started.")
+            self.sock.close()
+            return
 
         if self.game_over:
             print("Disconnected before match started.")

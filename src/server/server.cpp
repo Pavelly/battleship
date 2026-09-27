@@ -109,7 +109,7 @@ void Server::HandleClient(SocketType client_socket) {
     auto session = std::make_shared<Session>(client_socket);
 
     MessageWriter welcome(MessageType::GAME_START);
-    welcome.WriteUInt8(1);
+    welcome.WriteUInt8(PROTOCOL_VER);
     session->SendSessionMessage(welcome.Finish());
 
     session->SetMessageHandler([this, session](MessageType t, const std::vector<uint8_t>& p) {

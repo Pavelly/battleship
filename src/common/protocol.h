@@ -5,6 +5,8 @@
 #include <optional>
 #include <span>
 
+constexpr uint8_t PROTOCOL_VER = 0x02;
+
 enum class MessageType : uint8_t {
     SHOT                    = 0x01,
     SHOT_RESULT             = 0x02,
