@@ -5,7 +5,7 @@ import sys
 import time
 import getpass
 
-PROTOCOL_VERSION = 0x06
+PROTOCOL_VERSION = 0x07
 
 # ------- protocol messages -------
 MSG_SHOT                    = 0x01
@@ -17,6 +17,11 @@ MSG_GAME_OVER               = 0x05
 MSG_WAITING                 = 0x0A
 MSG_MATCH_FOUND             = 0x0B
 MSG_PLAYER_NUMBER           = 0x0C
+MSG_REMATCH_REQUEST         = 0x2E
+MSG_REMATCH_OFFER           = 0x2F
+MSG_REMATCH_DECLINE         = 0x30
+MSG_REMATCH_DECLINED        = 0x31
+MSG_REMATCH_START           = 0x32
 
 MSG_ROOM_CREATE             = 0x28
 MSG_ROOM_CREATED            = 0x29
@@ -71,15 +76,15 @@ class BattleShipClient:
         self.game_over = False
         self.username = ""
         self.in_room = False
-
+        self.quit = False 
+        self.rematch_started = False
+        self.rematch_decision_event = threading.Event()
         self.auth_event = threading.Event()
         self.auth_failed = False
-
         self.my_board = [[0] * 10 for _ in range(10)]
         self.enemy_board = [[0] * 10 for _ in range(10)]
         self.opponent_name = ""
         self.lock = threading.Lock()
-
         self.match_found_event = threading.Event()
         self.welcome_event = threading.Event()
         self.placement_ready_event = threading.Event() 
@@ -118,15 +123,17 @@ class BattleShipClient:
         return data
 
     def listener_thread(self):
-        while not self.game_over:
+        while not self.quit:
             msg = self.read_message()
             if msg is None:
                 print("\n[Server disconnected]")
                 self.game_over = True
+                self.quit = True
                 self.welcome_event.set()
                 self.match_found_event.set()
                 self.placement_ready_event.set()
                 self.battle_start_event.set()
+                self.rematch_decision_event.set()
                 break
             msg_type, payload = msg
             self.handle_message(msg_type, payload)
@@ -303,6 +310,25 @@ class BattleShipClient:
                         4: "That is your own room"}
                 print(f"[Server] Join failed: {codes.get(payload[0], '?')}")
 
+            elif msg_type == MSG_REMATCH_OFFER:
+                print("\n[Server] Opponent offers a rematch")
+
+            elif msg_type == MSG_REMATCH_DECLINED:
+                print("\n[Server] Opponent declined the rematch")
+                self.rematch_started = False
+                self.rematch_decision_event.set()
+
+            elif msg_type == MSG_REMATCH_START:
+                print("\n[Server] Rematch! Place your fleet again")
+                self.my_board = [[0] * 10 for _ in range(10)]
+                self.enemy_board = [[0] * 10 for _ in range(10)]
+                self.my_turn = False
+                self.game_over = False
+                self.rematch_started = True
+                self.placement_ready_event.clear()
+                self.battle_start_event.clear()
+                self.rematch_decision_event.set()
+
             elif msg_type == MSG_ERROR:
                 error_code = payload[0] if payload else 0
                 print(f"\n[Error] Code: {error_code}")
@@ -378,6 +404,70 @@ class BattleShipClient:
                     row_str += symbols.get(cell, '?') + ' '
             print(row_str)
 
+    def lobby_loop(self):
+        while not self.quit and not self.match_found_event.is_set():
+            print("\n=== LOBBY ===  [c]reate  [l]ist  [j <id>] join  [q]uit")
+            cmd = input("> ").strip()
+            if cmd == 'c':
+                name = input("Room name: ").strip() or f"{self.username}'s room"
+                priv = input("Private? [y/N]: ").strip().lower() == 'y'
+                nb = name.encode()
+                self.send_message(MSG_ROOM_CREATE,
+                                  bytes([len(nb)]) + nb + bytes([1 if priv else 0]))
+            elif cmd == 'l':
+                self.send_message(MSG_ROOM_LIST_REQUEST)
+            elif cmd.startswith('j'):
+                parts = cmd.split()
+                if len(parts) == 2 and parts[1].isdigit():
+                    self.send_message(MSG_ROOM_JOIN, struct.pack('<H', int(parts[1])))
+                else:
+                    print("Usage: j <room_id>")
+            elif cmd == 'q':
+                self.quit = True
+            time.sleep(0.3)
+            if self.in_room and not self.match_found_event.is_set():
+                self.match_found_event.wait(timeout=300)
+
+    def play_round(self):
+        mode = input("Fleet placement: [r]andom or [f]ixed? [r]: ").strip().lower() or 'r'
+        if mode == 'r':
+            self.send_message(MSG_PLACE_RANDOM)
+            print("[Client] Requested random fleet")
+        else:
+            self.send_placement()
+
+        if not self.placement_ready_event.wait(timeout=10) or self.quit:
+            print("Placement not confirmed, exiting.")
+            self.quit = True
+            return
+        print("[Client] Waiting for opponent's fleet...")
+        if not self.battle_start_event.wait(timeout=300) or self.quit:
+            print("Battle did not start, exiting.")
+            self.quit = True
+            return
+
+        print("When it's your turn, enter coordinates like: A5, B3, J10\n")
+        while not self.game_over and not self.quit:
+            if self.my_turn:
+                try:
+                    user_input = input()
+                    coords = self.str_to_coord(user_input)
+                    if coords is None:
+                        print("Invalid format. Use: A5, B3, J10")
+                        print(">>> YOUR TURN! Enter shot: ", end='', flush=True)
+                        continue
+                    row, col = coords
+                    self.send_shot(row, col)
+                    self.my_turn = False
+                except EOFError:
+                    self.quit = True
+                    break
+                except KeyboardInterrupt:
+                    self.quit = True
+                    break
+            else:
+                time.sleep(0.1)
+
     def run(self):
         self.connect()
         listener = threading.Thread(target=self.listener_thread, daemon=True)
@@ -399,80 +489,30 @@ class BattleShipClient:
             self.sock.close()
             return
 
-        while not self.game_over and not self.match_found_event.is_set():
-            print("\n=== LOBBY ===  [c]reate  [l]ist  [j <id>] join  [q]uit")
-            cmd = input("> ").strip()
-            if cmd == 'c':
-                name = input("Room name: ").strip() or f"{self.username}'s room"
-                priv = input("Private? [y/N]: ").strip().lower() == 'y'
-                nb = name.encode()
-                self.send_message(MSG_ROOM_CREATE,
-                                  bytes([len(nb)]) + nb + bytes([1 if priv else 0]))
-            elif cmd == 'l':
-                self.send_message(MSG_ROOM_LIST_REQUEST)
-            elif cmd.startswith('j'):
-                parts = cmd.split()
-                if len(parts) == 2 and parts[1].isdigit():
-                    self.send_message(MSG_ROOM_JOIN,
-                                      struct.pack('<H', int(parts[1])))
-                else:
-                    print("Usage: j <room_id>")
-            elif cmd == 'q':
-                self.game_over = True
-            time.sleep(0.3)   # даём серверу ответить до перерисовки меню
-
-            if self.in_room and not self.match_found_event.is_set():
-                self.match_found_event.wait(timeout=300)
-
-        if self.game_over:
+        self.lobby_loop()
+        if self.quit:
             self.sock.close()
             return
 
-        # print("Waiting for match...")
-        # if not self.match_found_event.wait(timeout=60) or self.game_over:
-        #     print("No match found, exiting.")
-        #     self.sock.close()
-        #     return
+        while not self.quit:
+            self.play_round()
+            if self.quit:
+                break
 
-        mode = input("Fleet placement: [r]andom or [f]ixed? [r]: ").strip().lower() or 'r'
-        if mode == 'r':
-            self.send_message(MSG_PLACE_RANDOM)
-            print("[Client] Requested random fleet")
-        else:
-            self.send_placement()
+            ans = input("Rematch? [y/n]: ").strip().lower()
+            if ans != 'y':
+                self.send_message(MSG_REMATCH_DECLINE)
+                break
 
-        if not self.placement_ready_event.wait(timeout=10) or self.game_over:
-            print("Placement not confirmed, exiting.")
-            self.sock.close()
-            return
+            self.send_message(MSG_REMATCH_REQUEST)
+            print("[Client] Waiting for opponent's decision...")
+            if not self.rematch_decision_event.wait(timeout=60):
+                print("[Client] No decision from opponent, exiting")
+                break
+            self.rematch_decision_event.clear()
+            if not self.rematch_started:
+                break
 
-        print("[Client] Waiting for opponent's fleet...")
-        if not self.battle_start_event.wait(timeout=300) or self.game_over:
-            print("Battle did not start (opponent left or timeout), exiting.")
-            self.sock.close()
-            return
-
-        print("When it's your turn, enter coordinates like: A5, B3, J10\n")
-        while not self.game_over:
-            if self.my_turn:
-                try:
-                    user_input = input()
-                    coords = self.str_to_coord(user_input)
-                    if coords is None:
-                        print("Invalid format. Use: A5, B3, J10")
-                        print(">>> YOUR TURN! Enter shot: ", end='', flush=True)
-                        continue
-                    row, col = coords
-                    self.send_shot(row, col)
-                    self.my_turn = False
-                except EOFError:
-                    print("\nExiting...")
-                    break
-                except KeyboardInterrupt:
-                    print("\nExiting...")
-                    break
-            else:
-                time.sleep(0.1)
         self.sock.close()
 
 

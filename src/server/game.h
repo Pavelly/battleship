@@ -39,6 +39,8 @@ private:
     int current_turn_;
     bool p1_ready_;
     bool p2_ready_;
+    bool p1_rematch_ = false;
+    bool p2_rematch_ = false;
 
     uint32_t turn_timeout_seconds_ = 30;
     int timeout_streak_[2] = {0, 0};
@@ -49,10 +51,13 @@ private:
     void HandlePlaceShips(int player_num, const std::vector<uint8_t>& payload);
     void HandleShot(int player_num, const std::vector<uint8_t>& payload);
     void HandlePlaceRandom(int player_num);
+    void HandleRematchRequest(int player_num);
+    void HandleRematchDecline(int player_num);
 
     void SendToPlayer(int player_num, const std::vector<uint8_t>& msg);
     void SendToBoth(const std::vector<uint8_t>& msg);
     void StartBattle();
+    void StartRematch();
     void EndGame(int winner, uint8_t reason);
 
     void ArmTurnTimer();

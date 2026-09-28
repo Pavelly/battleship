@@ -42,3 +42,8 @@ add_executable(test_rooms test_rooms.cpp)
 target_link_libraries(test_rooms PRIVATE battleship_match)
 set_strict_warnings(test_rooms)
 add_test(NAME room_tests COMMAND test_rooms)
+
+add_executable(test_rematch test_rematch.cpp)
+target_link_libraries(test_rematch PRIVATE battleship_match)
+set_strict_warnings(test_rematch)
+add_test(NAME rematch_tests COMMAND test_rematch)

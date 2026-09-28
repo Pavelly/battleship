@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-constexpr uint8_t PROTOCOL_VER = 0x06;
+constexpr uint8_t PROTOCOL_VER = 0x07;
 
 enum class MessageType : uint8_t {
     SHOT                    = 0x01,
@@ -17,6 +17,11 @@ enum class MessageType : uint8_t {
     WAITING                 = 0x0A,
     MATCH_FOUND             = 0x0B,
     PLAYER_NUMBER           = 0x0C,
+    REMATCH_REQUEST         = 0x2E,
+    REMATCH_OFFER           = 0x2F,
+    REMATCH_DECLINE         = 0x30,
+    REMATCH_DECLINED        = 0x31,
+    REMATCH_START           = 0x32,
 
     ROOM_CREATE             = 0x28,
     ROOM_CREATED            = 0x29,

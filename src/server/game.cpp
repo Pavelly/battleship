@@ -21,8 +21,21 @@ Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, D
 void Game::ProcessMessage(int player_num, MessageType type, const std::vector<uint8_t> &payload) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (phase_ == GamePhase::FINISHED)
-        return;
+    if (phase_ == GamePhase::FINISHED) {
+        switch (type) {
+            case MessageType::REMATCH_REQUEST:
+                HandleRematchRequest(player_num);
+                break;
+            case MessageType::REMATCH_DECLINE:
+                HandleRematchDecline(player_num);
+                break;
+            
+            default:
+                std::cout << "[Game] Ignoring message type "
+                          << static_cast<int>(type) << " in FINISHED phase\n";
+                return;
+        }
+    }
 
     std::cout << "[Game] Player " << player_num
               << " sent message type " << static_cast<int>(type) << std::endl;
@@ -264,6 +277,40 @@ void Game::HandlePlaceRandom(int player_num) {
                   << ", waiting for the second fleet..." << std::endl;
 }
 
+void Game::HandleRematchRequest(int player_num) {
+    const int opponent = 3 - player_num;
+    auto opp_session = GetPlayer(opponent);
+
+    if (!opp_session || !opp_session->IsAlive()) {
+        MessageWriter declined(MessageType::REMATCH_DECLINED);
+        SendToPlayer(player_num, declined.Finish());
+        return;
+    }
+
+    if (player_num == 1) p1_rematch_ = true;
+    else                 p2_rematch_ = true;
+
+    std::cout << "[Game] Player " << player_num << " requests rematch\n";
+
+    if (p1_rematch_ && p2_rematch_) {
+        StartRematch();
+        return;
+    }
+
+    MessageWriter offer(MessageType::REMATCH_OFFER);
+    SendToPlayer(opponent, offer.Finish());
+}
+
+void Game::HandleRematchDecline(int player_num) {
+    p1_rematch_ = false;
+    p2_rematch_ = false;
+
+    std::cout << "[Game] Player " << player_num << " declined rematch\n";
+
+    MessageWriter declined(MessageType::REMATCH_DECLINED);
+    SendToPlayer(3 - player_num, declined.Finish());
+}
+
 void Game::SendToPlayer(int player_num, const std::vector<uint8_t> &msg) {
     auto player = GetPlayer(player_num);
     if (player && player->IsAlive())
@@ -292,6 +339,23 @@ void Game::StartBattle() {
 
     MessageWriter enemy_turn(MessageType::ENEMY_TURN);
     SendToPlayer(2, enemy_turn.Finish());
+}
+
+void Game::StartRematch() {
+    board1_.Reset();
+    board2_.Reset();
+    p1_ready_   = false;
+    p2_ready_   = false;
+    p1_rematch_ = false;
+    p2_rematch_ = false;
+    timeout_streak_[0] = 0;
+    timeout_streak_[1] = 0;
+    phase_ = GamePhase::PLACEMENT;
+
+    std::cout << "[Game] Rematch started! Back to placement\n";
+    
+    MessageWriter start(MessageType::REMATCH_START);
+    SendToBoth(start.Finish());
 }
 
 void Game::EndGame(int winner, uint8_t reason) {
