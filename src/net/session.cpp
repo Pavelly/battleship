@@ -36,6 +36,8 @@ void Session::Run() {
 }
 
 void Session::SendSessionMessage(const std::vector<uint8_t> &message) {
+    if (socket_ == INVALID_SOCK)
+        return;
     std::lock_guard<std::mutex> lock(send_mutex_);
     
     if (!alive_.load()) {

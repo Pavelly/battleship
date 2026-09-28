@@ -6,6 +6,8 @@
 #include <memory>
 #include <unordered_map>
 #include <optional>
+#include <thread>
+#include <atomic>
 
 class Game;
 class Database;
@@ -18,15 +20,23 @@ public:
     };
 
     explicit Lobby(Database& db);
+    ~Lobby() { StopTurnWatchdog(); }
 
     bool TryMatch(std::shared_ptr<Session> session);
     void RemoveFromQueue(std::shared_ptr<Session> session);
 
     std::optional<MatchRecord> GetMatch(int session_id);
     void RemoveMatch(int session_id);
+
+    void StartTurnWatchdog();
+    void StopTurnWatchdog();
 private:
     Database& db_;
     std::mutex mutex_;
     std::queue<std::shared_ptr<Session>> waiting_queue_;
     std::unordered_map<int, MatchRecord> active_matches_;
+    std::thread watchdog_;
+    std::atomic<bool> watchdog_running_{false};
+
+    void WatchdogLoop();
 };

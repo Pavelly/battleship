@@ -1,6 +1,7 @@
 #include "game/board.h"
 #include <iostream>
 #include <algorithm>
+#include "board.h"
 
 PlacementResult Board::PlaceShip(uint8_t row, uint8_t col, uint8_t size, Orientation orientation) {
     if (size < 1 || size > 4)
@@ -29,16 +30,18 @@ ShotResult Board::Shoot(uint8_t row, uint8_t col) {
         if (ship.WasShotAt(row, col))
             return ShotResult::ALREADY_SHOT;
 
-    int ship_index = FindShipAt(row, col);
+    if (missed_[row][col])
+        return ShotResult::ALREADY_SHOT;
 
-    if (ship_index == -1)
+    int ship_index = FindShipAt(row, col);
+    if (ship_index == -1) {
+        missed_[row][col] = true;
         return ShotResult::MISS;
+    }
 
     ships_[ship_index].TryHit(row, col);
-
     if (ships_[ship_index].IsSunk())
         return ShotResult::SINK;
-    
     return ShotResult::HIT;
 }
 
@@ -60,12 +63,14 @@ CellState Board::GetCellState(uint8_t row, uint8_t col) const {
                 return CellState::HIT;
             return CellState::SHIP;
         }
-
+    if (missed_[row][col])
+        return CellState::MISS;
     return CellState::EMPTY;
 }
 
 void Board::Reset() {
     ships_.clear();
+    missed_.assign(SIZE, std::vector<bool>(SIZE, false));
 }
 
 void Board::Print(bool show_ships) const {
@@ -85,12 +90,40 @@ void Board::Print(bool show_ships) const {
                 symbol = 'S';
             else if (state == CellState::HIT)
                 symbol = 'X';
+            else if (state == CellState::MISS)
+                symbol = 'o';
             std::cout << symbol << " ";
         }
         std::cout << "\n";
     }
 }
 
+std::vector<Coord> Board::MarkOutlineAround(uint8_t row, uint8_t col) {
+    std::vector<Coord> newly;
+
+    int ship_index = FindShipAt(row, col);
+    if (ship_index == -1 || !ships_[ship_index].IsSunk())
+        return newly;
+    
+    for (const auto& cell : ships_[ship_index].GetCells()) {
+        for (int dr = -1; dr <= 1; ++dr)
+            for (int dc = -1; dc <= 1; ++dc) {
+                const int r = cell.row + dr;
+                const int c = cell.col + dc;
+
+                if (r < 0 || r >= SIZE || c < 0 || c >= SIZE)
+                    continue;
+                if (IsCellNearShip(static_cast<uint8_t>(r), static_cast<uint8_t>(c)))
+                    continue;
+                if (missed_[r][c])
+                    continue;
+
+                missed_[r][c] = true;
+                newly.push_back({static_cast<uint8_t>(r), static_cast<uint8_t>(c)});
+            }
+    }
+    return newly;
+}
 PlacementResult Board::CanPlaceShip(uint8_t row, uint8_t col, uint8_t size, Orientation orientation) const {
     if (!IsWithinBounds(row, col, size, orientation))
         return PlacementResult::OUT_OF_BOUNDS;

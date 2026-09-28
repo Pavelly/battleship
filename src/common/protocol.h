@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-constexpr uint8_t PROTOCOL_VER = 0x03;
+constexpr uint8_t PROTOCOL_VER = 0x06;
 
 enum class MessageType : uint8_t {
     SHOT                    = 0x01,
@@ -18,20 +18,28 @@ enum class MessageType : uint8_t {
     MATCH_FOUND             = 0x0B,
     PLAYER_NUMBER           = 0x0C,
 
+    ROOM_CREATE             = 0x28,
+    ROOM_CREATED            = 0x29,
+    ROOM_LIST_REQUEST       = 0x2A,
+    ROOM_LIST               = 0x2B,
+    ROOM_JOIN               = 0x2C,
+    ROOM_JOIN_FAIL          = 0x2D,
+
     YOUR_TURN               = 0x14,
     ENEMY_TURN              = 0x15,
     ENEMY_SHOT              = 0x16,
     PLACEMENT_READY         = 0x17,
     BATTLE_START            = 0x18,
     OPPONENT_DISCONNECTED   = 0x19,
+    PLACE_RANDOM            = 0x22,
+    OWN_SHIPS               = 0x23,
+    BOARD_UPDATE            = 0x24,
+    TURN_TIMEOUT            = 0x25,
 
     AUTH_REGISTER           = 0x1E,
     AUTH_LOGIN              = 0x1F,
     AUTH_OK                 = 0x20,
     AUTH_FAIL               = 0x21,
-
-    PLACE_RANDOM            = 0x22,
-    OWN_SHIPS               = 0x23,
 
     ERROR_MSG               = 0xFF
 };

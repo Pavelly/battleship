@@ -40,16 +40,18 @@ target_include_directories(battleship_db PUBLIC ${SRC_ROOT})
 target_link_libraries(battleship_db PUBLIC sqlite3 battleship_common)
 set_strict_warnings(battleship_db)
 
+add_library(battleship_match STATIC
+    server/room_manager.cpp
+    server/game.cpp
+)
+target_include_directories(battleship_match PUBLIC ${SRC_ROOT})
+target_link_libraries(battleship_match PUBLIC battleship_net battleship_game battleship_db)
+set_strict_warnings(battleship_match)
+
 add_executable(battleship_server
     server/main.cpp
     server/server.cpp
-    server/lobby.cpp
-    server/game.cpp
 )
 target_include_directories(battleship_server PRIVATE ${SRC_ROOT})
-target_link_libraries(battleship_server PRIVATE
-    battleship_game
-    battleship_db
-    battleship_net
-)
+target_link_libraries(battleship_server PRIVATE battleship_match)
 set_strict_warnings(battleship_server)

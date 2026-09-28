@@ -4,6 +4,7 @@
 #include "common/protocol.h"
 #include <iostream>
 #include <random>
+#include "game.h"
 
 Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db) 
     : player1_(player1)
@@ -144,6 +145,8 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
         return;
     }
 
+    timeout_streak_[player_num - 1] = 0;
+
     uint8_t row = payload[0];
     uint8_t col = payload[1];
 
@@ -151,6 +154,13 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
     int enemy_num = (player_num == 1) ? 2 : 1;
 
     ShotResult result = enemy_board.Shoot(row, col);
+
+    std::vector<Coord> outlined;
+    if (result == ShotResult::SINK) {
+        outlined = enemy_board.MarkOutlineAround(row, col);
+        std::cout << "[Game] Ship sunk, outlined " << outlined.size()
+                  << " cells" << std::endl;
+    }
 
     std::cout << "[Game] Player " << player_num
                                   << " shot at (" << static_cast<int>(row) << ", "
@@ -169,6 +179,18 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
     enemy_msg.WriteUInt8(static_cast<int>(result));
     SendToPlayer(enemy_num, enemy_msg.Finish());
 
+    if (!outlined.empty()) {
+        MessageWriter upd(MessageType::BOARD_UPDATE);
+        upd.WriteUInt8(static_cast<uint8_t>(enemy_num));
+        upd.WriteUInt8(static_cast<uint8_t>(outlined.size()));
+        for (const auto& cell : outlined) {
+            upd.WriteUInt8(cell.row);
+            upd.WriteUInt8(cell.col);
+            upd.WriteUInt8(static_cast<uint8_t>(CellState::MISS));
+        }
+        SendToBoth(upd.Finish());
+    }
+
     if (enemy_board.AllShipsSunk()) {
         EndGame(player_num, 0);
         return;
@@ -182,9 +204,13 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
 
         MessageWriter enemy_turn(MessageType::ENEMY_TURN);
         SendToPlayer(player_num, enemy_turn.Finish());
+        
+        ArmTurnTimer();
     } else {
         MessageWriter your_turn(MessageType::YOUR_TURN);
         SendToPlayer(player_num, your_turn.Finish());
+
+        ArmTurnTimer();
     }
 }
 
@@ -252,6 +278,9 @@ void Game::SendToBoth(const std::vector<uint8_t> &msg) {
 void Game::StartBattle() {
     phase_ = GamePhase::BATTLE;
     current_turn_ = 1;
+    timeout_streak_[0] = 0;
+    timeout_streak_[1] = 0;
+    ArmTurnTimer();
 
     std::cout << "[Game] Battle started! Player 1 goes first\n";
 
@@ -291,4 +320,42 @@ void Game::EndGame(int winner, uint8_t reason) {
     } else {
         std::cerr << "[Game] Failed to save result to DB\n";
     }
+}
+
+void Game::ArmTurnTimer() {
+    turn_deadline_ = std::chrono::steady_clock::now() 
+        + std::chrono::seconds(turn_timeout_seconds_);
+}
+
+void Game::CheckTurnTimeout() {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (phase_ != GamePhase::BATTLE)
+        return;
+    if (std::chrono::steady_clock::now() < turn_deadline_)
+        return;
+
+    const int offender = current_turn_;
+    const int opponent = (offender == 1) ? 2 : 1;
+    timeout_streak_[offender - 1]++;
+
+    std::cout << "[Game] Turn timeout: player " << offender
+              << " (streak " << timeout_streak_[offender - 1] << ")\n";
+    
+    if (timeout_streak_[offender - 1] >= 3) {
+        EndGame(opponent, 2);
+        return;
+    }
+
+    current_turn_ = opponent;
+    ArmTurnTimer();
+
+    MessageWriter timeout_msg(MessageType::TURN_TIMEOUT);
+    timeout_msg.WriteUInt8(static_cast<uint8_t>(offender));
+    SendToBoth(timeout_msg.Finish());
+
+    MessageWriter your_turn(MessageType::YOUR_TURN);
+    SendToPlayer(current_turn_, your_turn.Finish());
+    MessageWriter enemy_turn(MessageType::ENEMY_TURN);
+    SendToPlayer(offender, enemy_turn.Finish());
 }

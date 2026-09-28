@@ -5,34 +5,44 @@ import sys
 import time
 import getpass
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 0x06
 
-MSG_SHOT = 0x01
-MSG_SHOT_RESULT = 0x02
-MSG_PLACE_SHIPS = 0x03
-MSG_GAME_START = 0x04
-MSG_GAME_OVER = 0x05
+# ------- protocol messages -------
+MSG_SHOT                    = 0x01
+MSG_SHOT_RESULT             = 0x02
+MSG_PLACE_SHIPS             = 0x03
+MSG_GAME_START              = 0x04
+MSG_GAME_OVER               = 0x05
 
-MSG_WAITING = 0x0A
-MSG_MATCH_FOUND = 0x0B
-MSG_PLAYER_NUMBER = 0x0C
+MSG_WAITING                 = 0x0A
+MSG_MATCH_FOUND             = 0x0B
+MSG_PLAYER_NUMBER           = 0x0C
 
-MSG_YOUR_TURN = 0x14
-MSG_ENEMY_TURN = 0x15
-MSG_ENEMY_SHOT = 0x16
-MSG_PLACEMENT_READY = 0x17
-MSG_BATTLE_START = 0x18
-MSG_OPPONENT_DISCONNECTED = 0x19
+MSG_ROOM_CREATE             = 0x28
+MSG_ROOM_CREATED            = 0x29
+MSG_ROOM_LIST_REQUEST       = 0x2A
+MSG_ROOM_LIST               = 0x2B
+MSG_ROOM_JOIN               = 0x2C
+MSG_ROOM_JOIN_FAIL          = 0x2D
 
-MSG_PLACE_RANDOM = 0x22
-MSG_OWN_SHIPS = 0x23
+MSG_YOUR_TURN               = 0x14
+MSG_ENEMY_TURN              = 0x15
+MSG_ENEMY_SHOT              = 0x16
+MSG_PLACEMENT_READY         = 0x17
+MSG_BATTLE_START            = 0x18
+MSG_OPPONENT_DISCONNECTED   = 0x19
+MSG_PLACE_RANDOM            = 0x22
+MSG_OWN_SHIPS               = 0x23
+MSG_BOARD_UPDATE            = 0x24
+MSG_TURN_TIMEOUT            = 0x25
 
-MSG_AUTH_REGISTER = 0x1E
-MSG_AUTH_LOGIN = 0x1F
-MSG_AUTH_OK = 0x20
-MSG_AUTH_FAIL = 0x21
+MSG_AUTH_REGISTER           = 0x1E
+MSG_AUTH_LOGIN              = 0x1F
+MSG_AUTH_OK                 = 0x20
+MSG_AUTH_FAIL               = 0x21
 
-MSG_ERROR = 0xFF
+MSG_ERROR                   = 0xFF
+# ---------------------------------
 
 RESULT_NAMES = {
     0: "MISS",
@@ -59,6 +69,8 @@ class BattleShipClient:
         self.player_number = 0
         self.my_turn = False
         self.game_over = False
+        self.username = ""
+        self.in_room = False
 
         self.auth_event = threading.Event()
         self.auth_failed = False
@@ -207,6 +219,10 @@ class BattleShipClient:
                           else "All your ships destroyed!")
                 elif reason == 1:
                     print("Opponent disconnected")
+                elif reason == 2:
+                    print("Opponent exceeded turn time limit" 
+                          if winner == self.player_number 
+                          else "You exceeded the turn time limit")
                 print("=" * 40)
                 self.placement_ready_event.set()
                 self.battle_start_event.set()
@@ -221,6 +237,7 @@ class BattleShipClient:
             elif msg_type == MSG_AUTH_OK:
                 name_len = payload[0]
                 name = payload[1:1 + name_len].decode()
+                self.username = name                      # ← добавили
                 wins, losses = struct.unpack('<II', payload[1 + name_len:1 + name_len + 8])
                 print(f"[Server] Authenticated as {name} | wins: {wins}, losses: {losses}")
                 self.auth_event.set()
@@ -245,6 +262,46 @@ class BattleShipClient:
                     print(f"  {self.coord_to_str(row, col)} size={size} "
                         f"{'H' if orient == 0 else 'V'}")
                 self.print_boards()
+
+            elif msg_type == MSG_BOARD_UPDATE:
+                target = payload[0]
+                count = payload[1]
+                board = (self.my_board if target == self.player_number else self.enemy_board)
+                for i in range(count):
+                    row, col, state = payload[2 + i * 3: 5 + i * 3]
+                    board[row][col] = state
+                print(f"[Server] Sunk ship outlined: {count} cells marked")
+                self.print_boards()
+
+            elif msg_type == MSG_TURN_TIMEOUT:
+                offender = payload[0] if payload else 0
+                who = ("You" if offender == self.player_number else f"Opponent ({self.opponent_name or '?'})")
+                print(f"\n[Server] {who} ran out of turn time - turn passed")
+
+            elif msg_type == MSG_ROOM_CREATED:
+                room_id = struct.unpack('<H', payload[0:2])[0]
+                self.in_room = True
+                print(f"[Server] Room #{room_id} created. Waiting for an opponent...")
+
+            elif msg_type == MSG_ROOM_LIST:
+                count = payload[0]
+                print(f"\n=== Open rooms ({count}) ===")
+                off = 1
+                for _ in range(count):
+                    rid = struct.unpack('<H', payload[off:off + 2])[0]; off += 2
+                    nlen = payload[off]; off += 1
+                    rname = payload[off:off + nlen].decode(); off += nlen
+                    olen = payload[off]; off += 1
+                    oname = payload[off:off + olen].decode(); off += olen
+                    print(f"  #{rid:<4} {rname:<24} by {oname}")
+                if count == 0:
+                    print("  (empty — create one with 'c')")
+
+            elif msg_type == MSG_ROOM_JOIN_FAIL:
+                codes = {1: "Room not found", 2: "Room already in game",
+                        3: "You are already in a room or game",
+                        4: "That is your own room"}
+                print(f"[Server] Join failed: {codes.get(payload[0], '?')}")
 
             elif msg_type == MSG_ERROR:
                 error_code = payload[0] if payload else 0
@@ -342,11 +399,40 @@ class BattleShipClient:
             self.sock.close()
             return
 
-        print("Waiting for match...")
-        if not self.match_found_event.wait(timeout=60) or self.game_over:
-            print("No match found, exiting.")
+        while not self.game_over and not self.match_found_event.is_set():
+            print("\n=== LOBBY ===  [c]reate  [l]ist  [j <id>] join  [q]uit")
+            cmd = input("> ").strip()
+            if cmd == 'c':
+                name = input("Room name: ").strip() or f"{self.username}'s room"
+                priv = input("Private? [y/N]: ").strip().lower() == 'y'
+                nb = name.encode()
+                self.send_message(MSG_ROOM_CREATE,
+                                  bytes([len(nb)]) + nb + bytes([1 if priv else 0]))
+            elif cmd == 'l':
+                self.send_message(MSG_ROOM_LIST_REQUEST)
+            elif cmd.startswith('j'):
+                parts = cmd.split()
+                if len(parts) == 2 and parts[1].isdigit():
+                    self.send_message(MSG_ROOM_JOIN,
+                                      struct.pack('<H', int(parts[1])))
+                else:
+                    print("Usage: j <room_id>")
+            elif cmd == 'q':
+                self.game_over = True
+            time.sleep(0.3)   # даём серверу ответить до перерисовки меню
+
+            if self.in_room and not self.match_found_event.is_set():
+                self.match_found_event.wait(timeout=300)
+
+        if self.game_over:
             self.sock.close()
             return
+
+        # print("Waiting for match...")
+        # if not self.match_found_event.wait(timeout=60) or self.game_over:
+        #     print("No match found, exiting.")
+        #     self.sock.close()
+        #     return
 
         mode = input("Fleet placement: [r]andom or [f]ixed? [r]: ").strip().lower() or 'r'
         if mode == 'r':

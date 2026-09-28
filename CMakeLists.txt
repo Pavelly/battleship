@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Строгие предупреждения — одной функцией для всех целей
 function(set_strict_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX)

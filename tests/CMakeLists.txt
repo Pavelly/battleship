@@ -27,3 +27,18 @@ add_executable(test_random test_random.cpp)
 target_link_libraries(test_random PRIVATE battleship_game)
 set_strict_warnings(test_random)
 add_test(NAME random_tests COMMAND test_random)
+
+add_executable(test_outline test_outline.cpp)
+target_link_libraries(test_outline PRIVATE battleship_game)
+set_strict_warnings(test_outline)
+add_test(NAME outline_tests COMMAND test_outline)
+
+add_executable(test_timer test_timer.cpp)
+target_link_libraries(test_timer PRIVATE battleship_match)
+set_strict_warnings(test_timer)
+add_test(NAME timer_tests COMMAND test_timer)
+
+add_executable(test_rooms test_rooms.cpp)
+target_link_libraries(test_rooms PRIVATE battleship_match)
+set_strict_warnings(test_rooms)
+add_test(NAME room_tests COMMAND test_rooms)

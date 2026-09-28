@@ -25,7 +25,7 @@ class Board {
 public:
     static constexpr uint8_t SIZE = 10;
 
-    Board() {}
+    Board() : missed_(SIZE, std::vector<bool>(SIZE, false)) {}
 
     PlacementResult PlaceShip(uint8_t row, uint8_t col, uint8_t size, Orientation orientation);
     bool IsPlacementComplete() const;
@@ -35,8 +35,10 @@ public:
     size_t GetShipCount() const { return ships_.size(); }
     void Reset();
     void Print(bool show_ships = true) const;
+    std::vector<Coord> MarkOutlineAround(uint8_t row, uint8_t col);
 private:
     std::vector<Ship> ships_;
+    std::vector<std::vector<bool>> missed_;
 
     PlacementResult CanPlaceShip(uint8_t row, uint8_t col, uint8_t size, Orientation orientation) const;
     bool IsWithinBounds(uint8_t row, uint8_t col, uint8_t size, Orientation orientation) const;

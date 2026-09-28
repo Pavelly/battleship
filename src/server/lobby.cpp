@@ -2,6 +2,9 @@
 #include "server/game.h"
 #include "common/protocol.h"
 #include <iostream>
+#include <chrono>
+#include <unordered_set>
+#include "lobby.h"
 
 Lobby::Lobby(Database &db)
     : db_(db) {}
@@ -101,4 +104,37 @@ std::optional<Lobby::MatchRecord> Lobby::GetMatch(int session_id) {
 void Lobby::RemoveMatch(int session_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     active_matches_.erase(session_id);
+}
+
+void Lobby::StartTurnWatchdog() {
+    if (watchdog_running_.load())
+        return;
+    watchdog_running_.store(true);
+    watchdog_ = std::thread(&Lobby::WatchdogLoop, this);
+    std::cout << "[Lobby] Turn watchdog started\n";
+}
+
+void Lobby::StopTurnWatchdog() {
+    if (!watchdog_running_.exchange(false))
+        return;
+    if (watchdog_.joinable())
+        watchdog_.join();
+    std::cout << "[Lobby] Turn watchdog stopped\n";
+}
+
+void Lobby::WatchdogLoop() {
+    while (watchdog_running_.load()) {
+        std::vector<std::shared_ptr<Game>> games;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            std::unordered_set<Game*> seen;
+            for (const auto& [session_id, rec] : active_matches_)
+                if (seen.insert(rec.game.get()).second)
+                    games.push_back(rec.game);
+        }
+        for (auto& game : games)
+            game->CheckTurnTimeout();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
 }

@@ -4,6 +4,7 @@
 #include "game/board.h"
 #include <memory>
 #include <mutex>
+#include <chrono>
 
 class Database;
 
@@ -22,6 +23,10 @@ public:
     std::shared_ptr<Session> GetPlayer1() const { return player1_; }
     std::shared_ptr<Session> GetPlayer2() const { return player2_; }
     GamePhase GetPhase() const { return phase_; }
+
+    int GetCurrentTurn() const { return current_turn_; }
+    void SetTurnTimeoutSeconds(uint32_t seconds) { turn_timeout_seconds_ = seconds; }
+    void CheckTurnTimeout();
 private:
     std::shared_ptr<Session> player1_;
     std::shared_ptr<Session> player2_;
@@ -35,6 +40,10 @@ private:
     bool p1_ready_;
     bool p2_ready_;
 
+    uint32_t turn_timeout_seconds_ = 30;
+    int timeout_streak_[2] = {0, 0};
+    std::chrono::steady_clock::time_point turn_deadline_;
+
     std::mutex mutex_;
 
     void HandlePlaceShips(int player_num, const std::vector<uint8_t>& payload);
@@ -45,6 +54,8 @@ private:
     void SendToBoth(const std::vector<uint8_t>& msg);
     void StartBattle();
     void EndGame(int winner, uint8_t reason);
+
+    void ArmTurnTimer();
 
     std::shared_ptr<Session> GetPlayer(int num) { return num == 1 ? player1_ : player2_; }
 };

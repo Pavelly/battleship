@@ -10,7 +10,7 @@ Server::Server(uint16_t port, Database& db)
     : port_(port)
     , db_(db)
     , auth_(db_)
-    , lobby_(db_)
+    , rooms_(db_)
     , listen_socket_(INVALID_SOCK)
     , running_(false) {}
 
@@ -64,10 +64,12 @@ bool Server::Start() {
 
     std::cout << "Server listening on port " << port_ << "...\n";
     running_ = true;
+    rooms_.StartTurnWatchdog();
     return true;
 }
 
 void Server::Stop() {
+    rooms_.StopTurnWatchdog();
     if (listen_socket_ != INVALID_SOCK) {
         CloseSocket(listen_socket_);
         listen_socket_ = INVALID_SOCK;
@@ -118,11 +120,16 @@ void Server::HandleClient(SocketType client_socket) {
 
     session->Run();
 
-    lobby_.RemoveFromQueue(session);
-    if (auto match = lobby_.GetMatch(session->GetId())) {
+    rooms_.OnWaitingPlayerDisconnected(session);
+    if (auto match = rooms_.GetMatch(session->GetId())) {
         match->game->OnPlayerDisconnect(match->player_number);
-        lobby_.RemoveMatch(session->GetId());
+        rooms_.RemoveMatch(session);
     }
+    // lobby_.RemoveFromQueue(session);
+    // if (auto match = lobby_.GetMatch(session->GetId())) {
+    //     match->game->OnPlayerDisconnect(match->player_number);
+    //     lobby_.RemoveMatch(session->GetId());
+    // }
     online_.Release(session->GetUserId(), session);
 
     std::cout << "[Server] Client handler finished\n";
@@ -165,7 +172,10 @@ void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType typ
             std::cout << "[Server] User '" << out.user.username
                       << "' authenticated (session " << session->GetId() << ")\n";
             
-            lobby_.TryMatch(session);
+            session->SetMessageHandler([this, session](MessageType t, const std::vector<uint8_t>& p) {
+                HandleLobbyMessage(session, t, p);
+            });
+            // lobby_.TryMatch(session);
             break;
         }
         case AuthService::Result::BAD_CREDENTIALS:
@@ -179,6 +189,50 @@ void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType typ
             break;
         case AuthService::Result::INVALID_PAYLOAD:
             SendAuthFail(session, static_cast<uint8_t>(AuthError::INVALID_PAYLOAD));
+            break;
+    }
+}
+
+void Server::HandleLobbyMessage(std::shared_ptr<Session> session, MessageType type, const std::vector<uint8_t>& payload) {
+    switch (type) {
+        case MessageType::ROOM_LIST_REQUEST:
+            session->SendSessionMessage(rooms_.BuildRoomListPayload());
+            break;
+        case MessageType::ROOM_CREATE: {
+            if (payload.size() < 2) return;
+            const uint8_t name_len = payload[0];
+            if (payload.size() < size_t(1) + name_len + 1) return;
+            std::string name(payload.begin() + 1, payload.begin() + 1 + name_len);
+            const bool is_private = payload[1 + name_len] != 0;
+            if (name.empty() || name.size() > 24) return;
+
+            const uint16_t id = rooms_.CreateRoom(session, name, is_private);
+            if (id == 0) {
+                MessageWriter fail(MessageType::ROOM_JOIN_FAIL);
+                fail.WriteUInt8(0x03);
+                session->SendSessionMessage(fail.Finish());
+                break;
+            }
+            MessageWriter created(MessageType::ROOM_CREATED);
+            created.WriteUInt16(id);
+            session->SendSessionMessage(created.Finish());
+            break;
+        }
+        case MessageType::ROOM_JOIN: {
+            if (payload.size() < 2) return;
+            const uint16_t id = static_cast<uint16_t>(payload[0] | (payload[1] << 8));
+            const auto res = rooms_.JoinRoom(session, id);
+            if (res != RoomManager::JoinResult::OK) {
+                MessageWriter fail(MessageType::ROOM_JOIN_FAIL);
+                fail.WriteUInt8(static_cast<uint8_t>(res));
+                session->SendSessionMessage(fail.Finish());
+            }
+            break;
+        }
+
+        default:
+            std::cout << "[Server] Lobby ignoring message type "
+                      << static_cast<int>(type) << std::endl;
             break;
     }
 }
