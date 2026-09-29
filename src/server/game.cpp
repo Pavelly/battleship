@@ -2,9 +2,9 @@
 #include "db/database.h"
 #include "game/random_fleet.h"
 #include "common/protocol.h"
+#include "common/logger.h"
 #include <iostream>
 #include <random>
-#include "game.h"
 
 Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db) 
     : player1_(player1)
@@ -14,8 +14,8 @@ Game::Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, D
     , current_turn_(1)
     , p1_ready_(false)
     , p2_ready_(false) {
-    std::cout << "[Game] Created between player " << player1->GetId()
-              << " and " << player2->GetId() << std::endl;
+    LOG_INFO << "[Game] Created between player " << player1->GetId()
+              << " and " << player2->GetId();
 }
 
 void Game::ProcessMessage(int player_num, MessageType type, const std::vector<uint8_t> &payload) {
@@ -31,14 +31,14 @@ void Game::ProcessMessage(int player_num, MessageType type, const std::vector<ui
                 break;
             
             default:
-                std::cout << "[Game] Ignoring message type "
-                          << static_cast<int>(type) << " in FINISHED phase\n";
+                LOG_WARN << "[Game] Ignoring message type "
+                          << static_cast<int>(type) << " in FINISHED phase";
                 return;
         }
     }
 
-    std::cout << "[Game] Player " << player_num
-              << " sent message type " << static_cast<int>(type) << std::endl;
+    LOG_DEBUG << "[Game] Player " << player_num
+              << " sent message type " << static_cast<int>(type);
 
     switch (type) {
         case MessageType::PLACE_SHIPS:
@@ -52,8 +52,8 @@ void Game::ProcessMessage(int player_num, MessageType type, const std::vector<ui
             break;
 
         default:
-            std::cerr << "[Game] Unknown message type: "
-                      << static_cast<int>(type) << std::endl;
+            LOG_ERROR << "[Game] Unknown message type: "
+                      << static_cast<int>(type);
             break;
     }
 }
@@ -61,7 +61,7 @@ void Game::ProcessMessage(int player_num, MessageType type, const std::vector<ui
 void Game::OnPlayerDisconnect(int player_num) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::cout << "[Game] Player " << player_num << " disconnected\n";
+    LOG_INFO << "[Game] Player " << player_num << " disconnected";
 
     if (phase_ == GamePhase::FINISHED)
         return;
@@ -72,23 +72,23 @@ void Game::OnPlayerDisconnect(int player_num) {
 
 void Game::HandlePlaceShips(int player_num, const std::vector<uint8_t> &payload) {
     if (phase_ != GamePhase::PLACEMENT) {
-        std::cerr << "[Game] PLACE_SHIPS received in wrong phase\n";
+        LOG_ERROR << "[Game] PLACE_SHIPS received in wrong phase";
         return;
     }
 
     if ((player_num == 1 && p1_ready_) || (player_num == 2 && p2_ready_)) {
-        std::cerr << "[Game] Player " << player_num << " already placed ships\n";
+        LOG_ERROR << "[Game] Player " << player_num << " already placed ships";
         return;
     }
 
     if (payload.empty()) {
-        std::cerr << "[Game] Empty PLACE_SHIPS payload\n";
+        LOG_ERROR << "[Game] Empty PLACE_SHIPS payload";
         return;
     }
 
     uint8_t count = payload[0];
     if (count != 10 || payload.size() != 1 + 10 * 4) {
-        std::cerr << "[Game] Invalid PLACE_SHIPS payload size\n";
+        LOG_ERROR << "[Game] Invalid PLACE_SHIPS payload size";
         return;
     }
 
@@ -105,10 +105,10 @@ void Game::HandlePlaceShips(int player_num, const std::vector<uint8_t> &payload)
 
         PlacementResult result = board.PlaceShip(row, col, size, orientation);
         if (result != PlacementResult::OK) {
-            std::cerr << "[Game] Invalid ship placement: row = " << static_cast<int>(row)
+            LOG_ERROR << "[Game] Invalid ship placement: row = " << static_cast<int>(row)
                       << ", col = " << static_cast<int>(col)
                       << ", size = " << static_cast<int>(size)
-                      << ", error = " << static_cast<int>(result) << std::endl;
+                      << ", error = " << static_cast<int>(result);
             valid = false;
             break;
         }
@@ -127,7 +127,7 @@ void Game::HandlePlaceShips(int player_num, const std::vector<uint8_t> &payload)
     else 
         p2_ready_ = true;
     
-    std::cout << "[Game] Player " << player_num << " placed ships successfully\n";
+    LOG_INFO << "[Game] Player " << player_num << " placed ships successfully";
 
     MessageWriter ready_msg(MessageType::PLACEMENT_READY);
     SendToPlayer(player_num, ready_msg.Finish());
@@ -135,18 +135,18 @@ void Game::HandlePlaceShips(int player_num, const std::vector<uint8_t> &payload)
     if (p1_ready_ && p2_ready_)
         StartBattle();
     else
-        std::cout << "[Game] Fleet accepted from player " << player_num
-                  << ", waiting for the second fleet..." << std::endl;
+        LOG_INFO << "[Game] Fleet accepted from player " << player_num
+                  << ", waiting for the second fleet...";
 }
 
 void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
     if (phase_ != GamePhase::BATTLE) {
-        std::cerr << "[Game] SHOT received in wrong phase\n";
+        LOG_ERROR << "[Game] SHOT received in wrong phase";
         return;
     }
 
     if (current_turn_ != player_num) {
-        std::cerr << "[Game] Not player " << player_num << "'s turn\n";
+        LOG_ERROR << "[Game] Not player " << player_num << "'s turn";
         MessageWriter error_msg(MessageType::ERROR_MSG);
         error_msg.WriteUInt8(2);
         SendToPlayer(player_num, error_msg.Finish());
@@ -154,7 +154,7 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
     }
 
     if (payload.size() < 2) {
-        std::cerr << "[Game] Invalid SHOT payload\n";
+        LOG_ERROR << "[Game] Invalid SHOT payload";
         return;
     }
 
@@ -171,14 +171,14 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
     std::vector<Coord> outlined;
     if (result == ShotResult::SINK) {
         outlined = enemy_board.MarkOutlineAround(row, col);
-        std::cout << "[Game] Ship sunk, outlined " << outlined.size()
-                  << " cells" << std::endl;
+        LOG_DEBUG << "[Game] Ship sunk, outlined " << outlined.size()
+                  << " cells";
     }
 
-    std::cout << "[Game] Player " << player_num
+    LOG_INFO << "[Game] Player " << player_num
                                   << " shot at (" << static_cast<int>(row) << ", "
                                   << static_cast<int>(col) << ") = "
-                                  << static_cast<int>(result) << std::endl;
+                                  << static_cast<int>(result);
     
     MessageWriter result_msg(MessageType::SHOT_RESULT);
     result_msg.WriteUInt8(row);
@@ -229,11 +229,11 @@ void Game::HandleShot(int player_num, const std::vector<uint8_t> &payload) {
 
 void Game::HandlePlaceRandom(int player_num) {
     if (phase_ != GamePhase::PLACEMENT) {
-        std::cerr << "[Game] PLACE_RANDOM in wrong phase\n";
+        LOG_ERROR << "[Game] PLACE_RANDOM in wrong phase";
         return;
     }
     if ((player_num == 1 && p1_ready_) || (player_num == 2 && p2_ready_)) {
-        std::cerr << "[Game] Player " << player_num << " already ready\n";
+        LOG_ERROR << "[Game] Player " << player_num << " already ready";
         return;
     }
 
@@ -243,7 +243,7 @@ void Game::HandlePlaceRandom(int player_num) {
     const auto specs = PlaceRandomFleet(board, rng);
 
     if (specs.empty()) {
-        std::cerr << "[Game] Random fleet generation failed\n";
+        LOG_ERROR << "[Game] Random fleet generation failed";
         MessageWriter err(MessageType::ERROR_MSG);
         err.WriteUInt8(1);
         SendToPlayer(player_num, err.Finish());
@@ -265,7 +265,7 @@ void Game::HandlePlaceRandom(int player_num) {
     else 
         p2_ready_ = true;
 
-    std::cout << "[Game] Player " << player_num << " placed random fleet\n";
+    LOG_INFO << "[Game] Player " << player_num << " placed random fleet";
 
     MessageWriter ready(MessageType::PLACEMENT_READY);
     SendToPlayer(player_num, ready.Finish());
@@ -273,8 +273,8 @@ void Game::HandlePlaceRandom(int player_num) {
     if (p1_ready_ && p2_ready_)
         StartBattle();
     else
-        std::cout << "[Game] Fleet accepted from player " << player_num
-                  << ", waiting for the second fleet..." << std::endl;
+        LOG_INFO << "[Game] Fleet accepted from player " << player_num
+                  << ", waiting for the second fleet...";
 }
 
 void Game::HandleRematchRequest(int player_num) {
@@ -290,7 +290,7 @@ void Game::HandleRematchRequest(int player_num) {
     if (player_num == 1) p1_rematch_ = true;
     else                 p2_rematch_ = true;
 
-    std::cout << "[Game] Player " << player_num << " requests rematch\n";
+    LOG_INFO << "[Game] Player " << player_num << " requests rematch";
 
     if (p1_rematch_ && p2_rematch_) {
         StartRematch();
@@ -305,7 +305,7 @@ void Game::HandleRematchDecline(int player_num) {
     p1_rematch_ = false;
     p2_rematch_ = false;
 
-    std::cout << "[Game] Player " << player_num << " declined rematch\n";
+    LOG_INFO << "[Game] Player " << player_num << " declined rematch";
 
     MessageWriter declined(MessageType::REMATCH_DECLINED);
     SendToPlayer(3 - player_num, declined.Finish());
@@ -329,7 +329,7 @@ void Game::StartBattle() {
     timeout_streak_[1] = 0;
     ArmTurnTimer();
 
-    std::cout << "[Game] Battle started! Player 1 goes first\n";
+    LOG_INFO << "[Game] Battle started! Player 1 goes first";
 
     MessageWriter start_msg(MessageType::BATTLE_START);
     SendToBoth(start_msg.Finish());
@@ -352,7 +352,7 @@ void Game::StartRematch() {
     timeout_streak_[1] = 0;
     phase_ = GamePhase::PLACEMENT;
 
-    std::cout << "[Game] Rematch started! Back to placement\n";
+    LOG_INFO << "[Game] Rematch started! Back to placement";
     
     MessageWriter start(MessageType::REMATCH_START);
     SendToBoth(start.Finish());
@@ -361,8 +361,8 @@ void Game::StartRematch() {
 void Game::EndGame(int winner, uint8_t reason) {
     phase_ = GamePhase::FINISHED;
 
-    std::cout << "[Game] Game over! Player " << winner << " wins (reason = "
-              << static_cast<int>(reason) << ")\n";
+    LOG_INFO << "[Game] Game over! Player " << winner << " wins (reason = "
+              << static_cast<int>(reason) << ")";
 
     MessageWriter game_over(MessageType::GAME_OVER);
     game_over.WriteUInt8(static_cast<uint8_t>(winner));
@@ -373,16 +373,16 @@ void Game::EndGame(int winner, uint8_t reason) {
     const int64_t p2_id = player2_->GetUserId();
 
     if (p1_id == -1 || p2_id == -1) {
-        std::cerr << "[Game] Cannot record result: player not authenticated\n";
+        LOG_ERROR << "[Game] Cannot record result: player not authenticated";
         return;
     }
 
     const int64_t winner_id = (winner == 1) ? p1_id : p2_id;
 
     if (db_.RecordGameResult(p1_id, p2_id, winner_id)) {
-        std::cout << "[Game] Result saved to DB (winner id = " << winner_id << ")\n";
+        LOG_INFO << "[Game] Result saved to DB (winner id = " << winner_id << ")";
     } else {
-        std::cerr << "[Game] Failed to save result to DB\n";
+        LOG_ERROR << "[Game] Failed to save result to DB";
     }
 }
 
@@ -391,7 +391,13 @@ void Game::ArmTurnTimer() {
         + std::chrono::seconds(turn_timeout_seconds_);
 }
 
-void Game::CheckTurnTimeout() {
+Game::GameSnapshot Game::GetSnapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return GameSnapshot{static_cast<int>(phase_), current_turn_};
+}
+
+void Game::CheckTurnTimeout()
+{
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (phase_ != GamePhase::BATTLE)
@@ -403,10 +409,10 @@ void Game::CheckTurnTimeout() {
     const int opponent = (offender == 1) ? 2 : 1;
     timeout_streak_[offender - 1]++;
 
-    std::cout << "[Game] Turn timeout: player " << offender
-              << " (streak " << timeout_streak_[offender - 1] << ")\n";
+    LOG_INFO << "[Game] Turn timeout: player " << offender
+              << " (streak " << timeout_streak_[offender - 1] << ")";
     
-    if (timeout_streak_[offender - 1] >= 3) {
+    if (timeout_streak_[offender - 1] >= static_cast<int>(max_turn_timeouts_)) {
         EndGame(opponent, 2);
         return;
     }

@@ -1,5 +1,6 @@
 #include "net/session.h"
 #include "server/game.h"
+#include "common/logger.h"
 #include <iostream>
 #include <cstring>
 
@@ -10,12 +11,12 @@ Session::Session(SocketType socket)
     , socket_(socket)
     , alive_(true) {
     read_buffer_.reserve(1024);
-    std::cout << "[Session " << id_ << "] Created\n";
+    LOG_INFO << "[Session " << id_ << "] Created";
 }
 
 Session::~Session() {
     if (socket_ != INVALID_SOCK) CloseSocket(socket_);
-    std::cout << "[Session " << id_ << "] Destroyed\n";
+    LOG_DEBUG << "[Session " << id_ << "] Destroyed";
 }
 
 void Session::Run() {
@@ -25,7 +26,7 @@ void Session::Run() {
         int bytes_received = recv(socket_, temp_buffer, sizeof(temp_buffer), 0);
 
         if (bytes_received <= 0) {
-            std::cout << "[Session " << id_ << "] Disconnected\n";
+            LOG_INFO << "[Session " << id_ << "] Disconnected";
             alive_.store(false);
             break;
         }
@@ -41,13 +42,13 @@ void Session::SendSessionMessage(const std::vector<uint8_t> &message) {
     std::lock_guard<std::mutex> lock(send_mutex_);
     
     if (!alive_.load()) {
-        std::cout << "[Session " << id_ << "] Dead";
+        LOG_INFO << "[Session " << id_ << "] Dead";
         return;
     }
     
     int sent = send(socket_, reinterpret_cast<const char*>(message.data()), static_cast<int>(message.size()), 0);
     if (sent <= 0) {
-        std::cerr << "[Session " << id_ << "] Send failed\n";
+        std::cerr << "[Session " << id_ << "] Send failed";
         alive_.store(false);
     }
 }
@@ -60,6 +61,13 @@ void Session::SetMessageHandler(IncomingMessageHandler handler) {
 void Session::SetUser(int64_t id, std::string username) {
     user_id_ = id;
     username_ = std::move(username);
+}
+
+void Session::Kick() {
+    alive_.store(false);
+    if (socket_ != INVALID_SOCK)
+        ShutdownSocket(socket_);
+    LOG_INFO << "[Session " << id_ << "] Kicked by server";
 }
 
 void Session::ProcessIncomingData() {
@@ -86,6 +94,6 @@ void Session::HandleMessage(MessageType type, const std::vector<uint8_t>& payloa
     if (handler)
         handler(type, payload);
     else 
-        std::cout << "[Session " << id_ << "] Message type "
-                  << static_cast<int>(type) << " ignored no handler yet\n";
+        LOG_WARN << "[Session " << id_ << "] Message type "
+                  << static_cast<int>(type) << " ignored no handler yet";
 }

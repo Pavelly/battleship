@@ -1,11 +1,15 @@
 #include "server/room_manager.h"
 #include "server/game.h"
 #include "db/database.h"
+#include "common/logger.h"
 #include <chrono>
 #include <iostream>
 #include <unordered_set>
 
-RoomManager::RoomManager(Database &db) : db_(db) {}
+RoomManager::RoomManager(Database& db, int turn_timeout_second, int max_turn_timeouts) 
+    : db_(db)
+    , turn_timeout_seconds_(turn_timeout_second)
+    , max_turn_timeouts_(max_turn_timeouts) {}
 RoomManager::~RoomManager() { StopTurnWatchdog(); }
 
 uint16_t RoomManager::CreateRoom(const std::shared_ptr<Session>& session, const std::string& name, bool is_private) {
@@ -15,8 +19,8 @@ uint16_t RoomManager::CreateRoom(const std::shared_ptr<Session>& session, const 
 
     const uint16_t id = next_room_id_++;
     rooms_[id] = std::make_shared<Room>(id, name, is_private, session);
-    std::cout << "[Rooms] Room #" << id << " '" << name << "' created by "
-              << session->GetUsername() << (is_private ? " (private)" : "") << std::endl;
+    LOG_INFO << "[Rooms] Room #" << id << " '" << name << "' created by "
+              << session->GetUsername() << (is_private ? " (private)" : "");
     return id;
 }
 
@@ -65,7 +69,7 @@ void RoomManager::OnWaitingPlayerDisconnected(const std::shared_ptr<Session>& se
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto it = rooms_.begin(); it != rooms_.end(); ++it)
         if (it->second->GetState() == RoomState::WAITING && it->second->GetOwner() == session) {
-            std::cout << "[Rooms] Room #" << it->first << " closed (owner left)\n";
+            LOG_INFO << "[Rooms] Room #" << it->first << " closed (owner left)";
             rooms_.erase(it);
             return;
         }
@@ -89,11 +93,46 @@ void RoomManager::RemoveMatch(const std::shared_ptr<Session>& session) {
             continue;
         auto other = (room.GetOwner() == session) ? room.GetGuest() : room.GetOwner();
         if (!active_matches_.count(other->GetId())) {
-            std::cout << "[Rooms] Room #" << room.GetId() << " closed" << std::endl;
+            LOG_INFO << "[Rooms] Room #" << room.GetId() << " closed";
             rooms_.erase(it);
         }
         break;
     }
+}
+
+std::vector<RoomManager::RoomInfo> RoomManager::SnapshotRooms() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<RoomInfo> out;
+    out.reserve(rooms_.size());
+    for (const auto& [id, room] : rooms_) {
+        RoomInfo info;
+        info.id         = room->GetId();
+        info.name       = room->GetName();
+        info.is_private = room->IsPrivate();
+        info.in_game    = (room->GetState() == RoomState::IN_GAME);
+        info.owner_name = room->GetOwner() ? room->GetOwner()->GetUsername() : "?";
+        info.guest_name = room->GetGuest() ? room->GetGuest()->GetUsername() : "";
+        out.push_back(std::move(info));
+    }
+    return out;
+}
+
+std::vector<RoomManager::GameInfo> RoomManager::SnapshotGames() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<GameInfo> out;
+    for (const auto& [id, room] : rooms_) {
+        if (room->GetState() != RoomState::IN_GAME || !room->GetGame())
+            continue;
+        const auto snap = room->GetGame()->GetSnapshot();
+        GameInfo info;
+        info.room_id        = room->GetId();
+        info.player1        = room->GetOwner() ? room->GetOwner()->GetUsername() : "?";
+        info.player2        = room->GetGuest() ? room->GetGuest()->GetUsername() : "?";
+        info.phase          = snap.phase;
+        info.current_turn   = snap.current_turn;
+        out.push_back(std::move(info));
+    }
+    return out;
 }
 
 void RoomManager::StartTurnWatchdog() {
@@ -101,7 +140,7 @@ void RoomManager::StartTurnWatchdog() {
         return;
     watchdog_running_.store(true);
     watchdog_ = std::thread(&RoomManager::WatchdogLoop, this);
-    std::cout << "[Rooms] Turn watchdog started\n";
+    LOG_INFO << "[Rooms] Turn watchdog started";
 }
 
 void RoomManager::StopTurnWatchdog() {
@@ -109,7 +148,7 @@ void RoomManager::StopTurnWatchdog() {
         return;
     if (watchdog_.joinable())
         watchdog_.join();
-    std::cout << "[Rooms] Turn watchdog stopped\n";    
+    LOG_INFO << "[Rooms] Turn watchdog stopped";    
 }
 
 void RoomManager::StartGameInRoom(Room &room, const std::shared_ptr<Session>& guest) {
@@ -118,6 +157,9 @@ void RoomManager::StartGameInRoom(Room &room, const std::shared_ptr<Session>& gu
 
     auto game = std::make_shared<Game>(owner, guest, db_);
     room.SetGame(game);
+
+    game->SetTurnTimeoutSeconds(turn_timeout_seconds_);
+    game->SetMaxTurnTimeouts(max_turn_timeouts_);
 
     std::weak_ptr<Game> weak = game;
     owner->SetMessageHandler([weak](MessageType t, const std::vector<uint8_t>& p) {
@@ -153,8 +195,8 @@ void RoomManager::StartGameInRoom(Room &room, const std::shared_ptr<Session>& gu
     n2.WriteUInt8(0x02);
     guest->SendSessionMessage(n2.Finish());
 
-    std::cout << "[Room] Game started in room #" << room.GetId() << ": "
-              << owner_name << " vs " << guest_name << std::endl;
+    LOG_INFO << "[Room] Game started in room #" << room.GetId() << ": "
+              << owner_name << " vs " << guest_name;
 }
 
 void RoomManager::WatchdogLoop() {

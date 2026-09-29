@@ -24,6 +24,10 @@
         WSACleanup();
     }
 
+    inline void ShutdownSocket(SocketType sock) {
+        shutdown(sock, SD_BOTH);
+    }
+
     #define SOCK_ERROR SOCKET_ERROR
     #define MSG_NOSIGNAL 0
 
@@ -51,6 +55,10 @@
     }
 
     inline void CleanupNetwork() {}
+
+    inline void ShutdownSocket(SocketType sock) {
+        shutdown(sock, SHUT_RDWR);
+    }
 
     #define SOCK_ERROR -1
 #endif

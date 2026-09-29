@@ -47,3 +47,13 @@ add_executable(test_rematch test_rematch.cpp)
 target_link_libraries(test_rematch PRIVATE battleship_match)
 set_strict_warnings(test_rematch)
 add_test(NAME rematch_tests COMMAND test_rematch)
+
+add_executable(test_logger test_logger.cpp)
+target_link_libraries(test_logger PRIVATE battleship_common)
+set_strict_warnings(test_logger)
+add_test(NAME logger_tests COMMAND test_logger)
+
+add_executable(test_config test_config.cpp)
+target_link_libraries(test_config PRIVATE battleship_common)
+set_strict_warnings(test_config)
+add_test(NAME config_tests COMMAND test_config)

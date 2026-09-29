@@ -8,9 +8,17 @@
 
 class OnlineRegistry {
 public:
+    struct OnlineInfo {
+        int64_t user_id;
+        int session_id;
+        std::string username;
+    };
+
     bool TryAcquire(int64_t user_id, const std::shared_ptr<Session>& session);
     void Release(int64_t user_id, const std::shared_ptr<Session>& session);
     size_t Size() const;
+    std::vector<OnlineInfo> Snapshot() const;
+    std::shared_ptr<Session> FindSession(int session_id) const;
 private:
     bool IsStale(const std::weak_ptr<Session>& entry) const;
     

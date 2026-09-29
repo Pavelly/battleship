@@ -10,7 +10,6 @@ void MessageWriter::WriteUInt8(uint8_t value) {
 }
 
 void MessageWriter::WriteUInt16(uint16_t value) {
-    // Native order
     payload_.push_back(static_cast<uint8_t>(value & 0xFF));
     payload_.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
 }

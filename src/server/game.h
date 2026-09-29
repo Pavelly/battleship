@@ -16,6 +16,11 @@ enum class GamePhase {
 
 class Game : public std::enable_shared_from_this<Game> {
 public:
+    struct GameSnapshot {
+        int phase = 0;
+        int current_turn = 0;
+    };
+
     Game(std::shared_ptr<Session> player1, std::shared_ptr<Session> player2, Database& db);
 
     void ProcessMessage(int player_num, MessageType type, const std::vector<uint8_t>& payload);
@@ -24,8 +29,11 @@ public:
     std::shared_ptr<Session> GetPlayer2() const { return player2_; }
     GamePhase GetPhase() const { return phase_; }
 
+    GameSnapshot GetSnapshot() const;
+
     int GetCurrentTurn() const { return current_turn_; }
     void SetTurnTimeoutSeconds(uint32_t seconds) { turn_timeout_seconds_ = seconds; }
+    void SetMaxTurnTimeouts(uint32_t n) { max_turn_timeouts_ = n; }
     void CheckTurnTimeout();
 private:
     std::shared_ptr<Session> player1_;
@@ -43,10 +51,11 @@ private:
     bool p2_rematch_ = false;
 
     uint32_t turn_timeout_seconds_ = 30;
+    uint32_t max_turn_timeouts_ = 3;
     int timeout_streak_[2] = {0, 0};
     std::chrono::steady_clock::time_point turn_deadline_;
 
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
 
     void HandlePlaceShips(int player_num, const std::vector<uint8_t>& payload);
     void HandleShot(int player_num, const std::vector<uint8_t>& payload);

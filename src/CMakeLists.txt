@@ -4,6 +4,8 @@ add_library(battleship_common STATIC
     common/protocol.cpp
     common/sha256.cpp
     common/password.cpp
+    common/logger.cpp
+    common/config.cpp
 )
 target_include_directories(battleship_common PUBLIC ${SRC_ROOT})
 set_strict_warnings(battleship_common)
@@ -51,6 +53,7 @@ set_strict_warnings(battleship_match)
 add_executable(battleship_server
     server/main.cpp
     server/server.cpp
+    server/admin_console.cpp
 )
 target_include_directories(battleship_server PRIVATE ${SRC_ROOT})
 target_link_libraries(battleship_server PRIVATE battleship_match)

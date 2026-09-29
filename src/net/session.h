@@ -32,6 +32,8 @@ public:
 
     int GetId() const { return id_; }
     bool IsAlive() const { return alive_.load(); }
+
+    void Kick();
 private:
     static std::atomic<int> next_id_;
 

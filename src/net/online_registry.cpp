@@ -26,7 +26,26 @@ size_t OnlineRegistry::Size() const {
     return online_.size();
 }
 
-bool OnlineRegistry::IsStale(const std::weak_ptr<Session> &entry) const
+std::vector<OnlineRegistry::OnlineInfo> OnlineRegistry::Snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<OnlineInfo> out;
+    for (const auto& [user_id, weak] : online_)
+        if (auto s = weak.lock())
+            if (s->IsAlive())
+                out.push_back(OnlineInfo{user_id, s->GetId(), s->GetUsername()});
+    return out;
+}
+
+std::shared_ptr<Session> OnlineRegistry::FindSession(int session_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& [user_id, weak] : online_)
+        if (auto s = weak.lock())
+            if (s->GetId() == session_id && s->IsAlive())
+                return s;
+    return nullptr;
+}
+
+bool OnlineRegistry::IsStale(const std::weak_ptr<Session>& entry) const
 {
     auto session = entry.lock();
     return !session || !session->IsAlive();

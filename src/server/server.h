@@ -2,14 +2,21 @@
 
 #include "net/platform.h"
 #include "net/online_registry.h"
-// #include "server/lobby.h"
+#include "server/admin_console.h"
 #include "server/room_manager.h"
 #include "db/auth_service.h"
 #include <cstdint>
 
+struct ServerSettings {
+    uint16_t port = 9090;
+    int turn_timeout_seconds = 30;
+    int max_turn_timeouts = 3;
+    bool admin_enabled = true;
+};
+
 class Server {
 public:
-    explicit Server(uint16_t port, Database& db);
+    explicit Server(const ServerSettings& settings, Database& db);
     ~Server();
 
     Server(const Server&) = delete;
@@ -23,8 +30,9 @@ private:
     Database& db_;
     AuthService auth_;
     OnlineRegistry online_;
-    // Lobby lobby_;
     RoomManager rooms_;
+    AdminConsole admin_;
+    bool admin_enabled_;
     SocketType listen_socket_;
     bool running_;
 

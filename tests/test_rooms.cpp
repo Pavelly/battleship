@@ -18,7 +18,7 @@ uint8_t ListCount(const std::vector<uint8_t>& msg) {
 int main() {
     Database db;
     assert(db.Open(":memory:"));
-    RoomManager mgr(db);
+    RoomManager mgr(db, 1, 1);
 
     auto alice = MakeSession(1, "Alice");
     auto bob   = MakeSession(2, "Bob");

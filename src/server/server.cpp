@@ -1,16 +1,19 @@
-#include "server.h"
-#include "game.h"
+#include "server/server.h"
+#include "server/game.h"
+#include "common/logger.h"
 #include <iostream>
 #include <cstring>
 #include <thread>
 #include <vector>
 #include <memory>
 
-Server::Server(uint16_t port, Database& db) 
-    : port_(port)
+Server::Server(const ServerSettings& settings, Database& db) 
+    : port_(settings.port)
     , db_(db)
     , auth_(db_)
-    , rooms_(db_)
+    , rooms_(db_, settings.turn_timeout_seconds, settings.max_turn_timeouts)
+    , admin_(online_, rooms_, db_, [this] { Stop(); })
+    , admin_enabled_(settings.admin_enabled)
     , listen_socket_(INVALID_SOCK)
     , running_(false) {}
 
@@ -20,13 +23,13 @@ Server::~Server() {
 
 bool Server::Start() {
     if (!InitNetwork()) {
-        std::cerr << "Failed to initialize network\n";
+        LOG_ERROR << "Failed to initialize network";
         return false;
     }
 
     listen_socket_ = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_socket_ == INVALID_SOCK) {
-        std::cerr << "Failed to create socket. Error: " << GetLastSocketError() << std::endl;
+        LOG_ERROR << "Failed to create socket. Error: " << GetLastSocketError();
         return false;
     }
 
@@ -39,7 +42,7 @@ bool Server::Start() {
             sizeof(opt)
         ) < 0
     ) {
-        std::cerr << "setsockopt failed\n";
+        LOG_ERROR << "setsockopt failed";
         CloseSocket(listen_socket_);
         return false;
     }
@@ -50,21 +53,23 @@ bool Server::Start() {
     server_addr.sin_port = htons(port_);
 
     if (bind(listen_socket_, reinterpret_cast<sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
-        std::cerr << "Bind failed. Error: " << GetLastSocketError() << std::endl;
-        std::cerr << "Port " << port_ << " might be in use\n";
+        LOG_ERROR << "Bind failed. Error: " << GetLastSocketError();
+        LOG_ERROR << "Port " << port_ << " might be in use";
         CloseSocket(listen_socket_);
         return false;
     }
 
     if (listen(listen_socket_, 10) < 0) {
-        std::cerr << "Listen failed\n";
+        LOG_ERROR << "Listen failed";
         CloseSocket(listen_socket_);
         return false;
     }
 
-    std::cout << "Server listening on port " << port_ << "...\n";
+    LOG_INFO << "Server listening on port " << port_ << "...";
     running_ = true;
     rooms_.StartTurnWatchdog();
+    if (admin_enabled_)
+        admin_.Start();
     return true;
 }
 
@@ -80,21 +85,21 @@ void Server::Stop() {
 
 void Server::Run() {
     if (!running_) {
-        std::cerr << "Server not started\n";
+        LOG_ERROR << "Server not started";
         return;
     }
 
-    std::cout << "Waiting for connection...\n";
+    LOG_INFO << "Waiting for connection...";
     
     while (running_) {
         SocketType client_socket = AcceptClient();
         if (client_socket == INVALID_SOCK) {
             if (running_) {
-                std::cerr << "Accept failed\n";
+                LOG_ERROR << "Accept failed";
             }
             continue;
         }
-        std::cout << "Client connected!\n";
+        LOG_INFO << "Client connected!";
         std::thread client_thread(&Server::HandleClient, this, client_socket);
         client_thread.detach();
     }
@@ -125,14 +130,9 @@ void Server::HandleClient(SocketType client_socket) {
         match->game->OnPlayerDisconnect(match->player_number);
         rooms_.RemoveMatch(session);
     }
-    // lobby_.RemoveFromQueue(session);
-    // if (auto match = lobby_.GetMatch(session->GetId())) {
-    //     match->game->OnPlayerDisconnect(match->player_number);
-    //     lobby_.RemoveMatch(session->GetId());
-    // }
     online_.Release(session->GetUserId(), session);
 
-    std::cout << "[Server] Client handler finished\n";
+    LOG_INFO << "[Server] Client handler finished";
 }
 
 void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType type, const std::vector<uint8_t>& payload) {
@@ -154,8 +154,8 @@ void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType typ
     switch(out.result) {
         case AuthService::Result::OK: {
             if (!online_.TryAcquire(out.user.id, session)) {
-                std::cout << "[Server] Duplicate login rejected: '" << out.user.username
-                          << "' (session " << session->GetId() << ")\n";
+                LOG_INFO << "[Server] Duplicate login rejected: '" << out.user.username
+                          << "' (session " << session->GetId() << ")";
                 SendAuthFail(session, static_cast<uint8_t>(AuthError::ALREADY_ONLINE));
                 break;
             }
@@ -169,13 +169,12 @@ void Server::HandleAuthMessage(std::shared_ptr<Session> session, MessageType typ
             ok.WriteUInt32(static_cast<uint32_t>(out.user.losses));
             session->SendSessionMessage(ok.Finish());
 
-            std::cout << "[Server] User '" << out.user.username
-                      << "' authenticated (session " << session->GetId() << ")\n";
+            LOG_INFO << "[Server] User '" << out.user.username
+                      << "' authenticated (session " << session->GetId() << ")";
             
             session->SetMessageHandler([this, session](MessageType t, const std::vector<uint8_t>& p) {
                 HandleLobbyMessage(session, t, p);
             });
-            // lobby_.TryMatch(session);
             break;
         }
         case AuthService::Result::BAD_CREDENTIALS:
@@ -231,8 +230,8 @@ void Server::HandleLobbyMessage(std::shared_ptr<Session> session, MessageType ty
         }
 
         default:
-            std::cout << "[Server] Lobby ignoring message type "
-                      << static_cast<int>(type) << std::endl;
+            LOG_WARN << "[Server] Lobby ignoring message type "
+                      << static_cast<int>(type);
             break;
     }
 }

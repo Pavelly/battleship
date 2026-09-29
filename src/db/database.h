@@ -34,6 +34,8 @@ public:
     
     std::optional<UserRecord> GetUserByName(const std::string& username);
     bool RecordGameResult(int64_t player1_id, int64_t player2_id, int64_t winner_id);
+
+    int64_t CountGames();
 private:
     bool ExecUnlocked(const std::string& sql);
     bool ExecBindInt64Unlocked(const char* sql, int64_t value);

@@ -29,7 +29,24 @@ public:
         int player_number;
     };
 
-    explicit RoomManager(Database& db);
+    struct RoomInfo {
+        uint16_t id;
+        std::string name;
+        bool is_private;
+        bool in_game;
+        std::string owner_name;
+        std::string guest_name;
+    };
+
+    struct GameInfo {
+        uint16_t room_id;
+        std::string player1;
+        std::string player2;
+        int phase;
+        int current_turn;
+    };
+
+    explicit RoomManager(Database& db, int turn_timeout_second, int max_turn_timeouts);
     ~RoomManager();
 
     uint16_t CreateRoom(const std::shared_ptr<Session>& session, const std::string& name, bool is_private);
@@ -40,6 +57,9 @@ public:
     void OnWaitingPlayerDisconnected(const std::shared_ptr<Session>& session);
     std::optional<MatchRecord> GetMatch(int session_id) const;
     void RemoveMatch(const std::shared_ptr<Session>& session);
+
+    std::vector<RoomInfo> SnapshotRooms() const;
+    std::vector<GameInfo> SnapshotGames() const;
 
     void StartTurnWatchdog();
     void StopTurnWatchdog();
@@ -53,6 +73,9 @@ private:
     std::unordered_map<uint16_t, std::shared_ptr<Room>> rooms_;
     std::unordered_map<int, MatchRecord> active_matches_;
     uint16_t next_room_id_ = 1;
+
+    int turn_timeout_seconds_;
+    int max_turn_timeouts_;
 
     std::thread watchdog_;
     std::atomic<bool> watchdog_running_{false};

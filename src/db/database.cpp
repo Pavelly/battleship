@@ -105,6 +105,19 @@ bool Database::RecordGameResult(int64_t player1_id, int64_t player2_id, int64_t 
     return ok;
 }
 
+int64_t Database::CountGames() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return -1;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "SELECT COUNT(*) FROM games;", -1, &stmt, nullptr) != SQLITE_OK)
+        return -1;
+    int64_t n = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        n = sqlite3_column_int64(stmt, 0);
+    sqlite3_finalize(stmt);
+    return n;
+}
+
 bool Database::ExecUnlocked(const std::string& sql) {
     char* err = nullptr;
     if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
