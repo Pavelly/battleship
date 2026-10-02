@@ -4,8 +4,13 @@ import threading
 import sys
 import time
 import getpass
+from collections import Counter
 
 PROTOCOL_VERSION = 0x08
+
+# Sizes of the 10 ships in the fleet (matches send_placement below).
+# Used only to drive the probability heatmap over the enemy board.
+FLEET_SIZES = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]
 
 # ------- protocol messages -------
 MSG_SHOT                    = 0x01
@@ -86,6 +91,8 @@ class BattleShipClient:
         self.auth_failed = False
         self.my_board = [[0] * 10 for _ in range(10)]
         self.enemy_board = [[0] * 10 for _ in range(10)]
+        self.remaining_sizes = Counter(FLEET_SIZES)
+        self.enemy_sunk_cells = set()
         self.opponent_name = ""
         self.lock = threading.Lock()
         self.match_found_event = threading.Event()
@@ -277,9 +284,17 @@ class BattleShipClient:
                 target = payload[0]
                 count = payload[1]
                 board = (self.my_board if target == self.player_number else self.enemy_board)
+                cells = []
                 for i in range(count):
                     row, col, state = payload[2 + i * 3: 5 + i * 3]
                     board[row][col] = state
+                    cells.append((row, col))
+                if target != self.player_number:
+                    # One of the enemy's ships just went down - stop counting
+                    # it towards the probability heatmap.
+                    if self.remaining_sizes[count] > 0:
+                        self.remaining_sizes[count] -= 1
+                    self.enemy_sunk_cells.update(cells)
                 print(f"[Server] Sunk ship outlined: {count} cells marked")
                 self.print_boards()
 
@@ -325,6 +340,8 @@ class BattleShipClient:
                 print("\n[Server] Rematch! Place your fleet again")
                 self.my_board = [[0] * 10 for _ in range(10)]
                 self.enemy_board = [[0] * 10 for _ in range(10)]
+                self.remaining_sizes = Counter(FLEET_SIZES)
+                self.enemy_sunk_cells = set()
                 self.my_turn = False
                 self.game_over = False
                 self.rematch_started = True
@@ -405,6 +422,44 @@ class BattleShipClient:
             return row, col
         return None
 
+    def _placement_fits(self, row, col, size, horizontal):
+        """Cells a ship of this size/orientation would occupy, or None if
+        it would run off the board or cross a known miss."""
+        cells = []
+        for i in range(size):
+            r = row + (0 if horizontal else i)
+            c = col + (i if horizontal else 0)
+            if not (0 <= r < 10 and 0 <= c < 10):
+                return None
+            if self.enemy_board[r][c] == 3:  # MISS
+                return None
+            cells.append((r, c))
+        return cells
+
+    def compute_heatmap(self):
+        """For every unknown enemy cell, how many ways a still-afloat ship
+        could cover it. Cells that would finish off an unresolved hit get
+        weighted much higher, so hot spots naturally cluster where a ship
+        was just found."""
+        heat = [[0] * 10 for _ in range(10)]
+        unresolved_hits = {
+            (r, c) for r in range(10) for c in range(10)
+            if self.enemy_board[r][c] == 2 and (r, c) not in self.enemy_sunk_cells
+        }
+        for size, count in self.remaining_sizes.items():
+            if count <= 0:
+                continue
+            for row in range(10):
+                for col in range(10):
+                    for horizontal in (True, False):
+                        cells = self._placement_fits(row, col, size, horizontal)
+                        if cells is None:
+                            continue
+                        weight = count * (50 if any(c in unresolved_hits for c in cells) else 1)
+                        for r, c in cells:
+                            heat[r][c] += weight
+        return heat
+
     def print_boards(self):
         print("\n" + "=" * 50)
         print("YOUR FIELD:")
@@ -412,11 +467,16 @@ class BattleShipClient:
         enemy_title = (f"ENEMY FIELD ({self.opponent_name}):"
                        if self.opponent_name else "ENEMY FIELD:")
         print("\n" + enemy_title)
-        self._print_board(self.enemy_board, show_ships=False)
+        heat = self.compute_heatmap()
+        self._print_board(self.enemy_board, show_ships=False, heat=heat)
+        max_heat = max((v for row in heat for v in row), default=0)
+        if max_heat:
+            print("(1-9 on empty cells = relative hit probability, 9 = hottest)")
         print("=" * 50)
 
-    def _print_board(self, board, show_ships: bool):
+    def _print_board(self, board, show_ships: bool, heat=None):
         symbols = {0: '.', 1: 'S', 2: 'X', 3: 'o'}
+        max_heat = max((v for row in heat for v in row), default=0) if heat else 0
         print("   " + " ".join(chr(ord('A') + c) for c in range(10)))
         for r in range(10):
             row_str = f"{r+1:2d} "
@@ -424,6 +484,9 @@ class BattleShipClient:
                 cell = board[r][c]
                 if cell == 1 and not show_ships:
                     row_str += '. '
+                elif cell == 0 and heat and max_heat:
+                    bucket = max(1, round(heat[r][c] / max_heat * 9)) if heat[r][c] else 0
+                    row_str += (str(bucket) if bucket else '.') + ' '
                 else:
                     row_str += symbols.get(cell, '?') + ' '
             print(row_str)

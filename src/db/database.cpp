@@ -105,6 +105,51 @@ bool Database::RecordGameResult(int64_t player1_id, int64_t player2_id, int64_t 
     return ok;
 }
 
+std::vector<GameRecord> Database::GetUserHistory(int64_t user_id, int limit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<GameRecord> out;
+    if (!db_)
+        return out;
+
+    if (limit <= 0) limit = 10;
+    if (limit > 50) limit = 50;
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT g.id, g.player1_id, g.player2_id, g.winner_id, g.finished_at, "
+        "       u1.username, u2.username "
+        "FROM games g "
+        "JOIN users u1 ON u1.id = g.player1_id "
+        "JOIN users u2 ON u2.id = g.player2_id "
+        "WHERE g.player1_id = ?1 OR g.player2_id = ?1 "
+        "ORDER BY g.id DESC "
+        "LIMIT ?2;";
+
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK)
+        return out;
+
+    sqlite3_bind_int64(stmt, 1, user_id);
+    sqlite3_bind_int(stmt, 2, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        GameRecord r;
+        r.game_id       = sqlite3_column_int64(stmt, 0);
+        r.player1_id    = sqlite3_column_int64(stmt, 1);
+        r.player2_id    = sqlite3_column_int64(stmt, 2);
+        r.winner_id     = sqlite3_column_int64(stmt, 3);
+
+        const auto* dt  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        const auto* n1  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        const auto* n2  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        r.finished_at   = dt ? dt : "";
+        r.player1_name  = n1 ? n1 : "?";
+        r.player2_name  = n2 ? n2 : "?";
+        out.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt);
+    return out;
+}
+
 int64_t Database::CountGames() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!db_) return -1;
@@ -144,7 +189,7 @@ bool Database::InitSchemaUnlocked() {
         "  username      TEXT NOT NULL UNIQUE COLLATE NOCASE,"
         "  password_hash TEXT NOT NULL,"
         "  salt          TEXT NOT NULL,"
-        "  created_at    TEXT NOT NULL DEFAULT (datetime('now')),"
+        "  created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),"
         "  wins          INTEGER NOT NULL DEFAULT 0,"
         "  losses        INTEGER NOT NULL DEFAULT 0);"
         "CREATE TABLE IF NOT EXISTS games ("
@@ -152,6 +197,6 @@ bool Database::InitSchemaUnlocked() {
         "  player1_id  INTEGER NOT NULL REFERENCES users(id),"
         "  player2_id  INTEGER NOT NULL REFERENCES users(id),"
         "  winner_id   INTEGER NOT NULL REFERENCES users(id),"
-        "  finished_at TEXT NOT NULL DEFAULT (datetime('now')));";
+        "  finished_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')));";
     return ExecUnlocked(schema);
 }

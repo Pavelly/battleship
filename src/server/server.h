@@ -41,4 +41,6 @@ private:
     void HandleAuthMessage(std::shared_ptr<Session> session, MessageType type, const std::vector<uint8_t>& payload);
     void HandleLobbyMessage(std::shared_ptr<Session> session, MessageType type, const std::vector<uint8_t>& payload);
     void SendAuthFail(const std::shared_ptr<Session>& session, uint16_t code);
+
+    std::vector<uint8_t> BuildHistoryPayload(const Session& session, uint8_t limit);
 };

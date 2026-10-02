@@ -57,3 +57,8 @@ add_executable(test_config test_config.cpp)
 target_link_libraries(test_config PRIVATE battleship_common)
 set_strict_warnings(test_config)
 add_test(NAME config_tests COMMAND test_config)
+
+add_executable(test_history test_history.cpp)
+target_link_libraries(test_history PRIVATE battleship_db)
+set_strict_warnings(test_history)
+add_test(NAME history_tests COMMAND test_history)

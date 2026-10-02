@@ -5,7 +5,7 @@
 #include <optional>
 #include <span>
 
-constexpr uint8_t PROTOCOL_VER = 0x07;
+constexpr uint8_t PROTOCOL_VER = 0x08;
 
 enum class MessageType : uint8_t {
     SHOT                    = 0x01,
@@ -45,6 +45,9 @@ enum class MessageType : uint8_t {
     AUTH_LOGIN              = 0x1F,
     AUTH_OK                 = 0x20,
     AUTH_FAIL               = 0x21,
+
+    HISTORY_REQUEST         = 0x33, // C→S: u8 limit (пусто = 10)
+    HISTORY                 = 0x34, // S→C: список партий с точки зрения запросившего
 
     ERROR_MSG               = 0xFF
 };

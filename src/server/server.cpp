@@ -228,6 +228,11 @@ void Server::HandleLobbyMessage(std::shared_ptr<Session> session, MessageType ty
             }
             break;
         }
+        case MessageType::HISTORY_REQUEST: {
+            const uint8_t limit = payload.empty() ? 10 : payload[0];
+            session->SendSessionMessage(BuildHistoryPayload(*session, limit));
+            break;
+        }
 
         default:
             LOG_WARN << "[Server] Lobby ignoring message type "
@@ -240,4 +245,23 @@ void Server::SendAuthFail(const std::shared_ptr<Session>& session, uint16_t code
     MessageWriter fail(MessageType::AUTH_FAIL);
     fail.WriteUInt8(code);
     session->SendSessionMessage(fail.Finish());
+}
+
+std::vector<uint8_t> Server::BuildHistoryPayload(const Session &session, uint8_t limit) {
+    const auto records = db_.GetUserHistory(session.GetUserId(), limit);
+
+    MessageWriter w(MessageType::HISTORY);
+    w.WriteUInt8(static_cast<uint8_t>(records.size()));
+
+    for (const auto& r : records) {
+        const bool win = (r.winner_id == session.GetUserId());
+        const std::string& opponent = (r.player1_id == session.GetUserId()) ? r.player2_name : r.player1_name;
+
+        w.WriteUInt8(win ? 1 : 0);
+        w.WriteUInt8(static_cast<uint8_t>(opponent.size()));
+        w.WriteBytes(opponent.data(), opponent.size());
+        w.WriteUInt8(static_cast<uint8_t>(r.finished_at.size()));
+        w.WriteBytes(r.finished_at.data(), r.finished_at.size());
+    }
+    return w.Finish();
 }

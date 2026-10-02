@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct sqlite3;
 
@@ -14,6 +15,16 @@ struct UserRecord {
     std::string salt;
     int wins = 0;
     int losses = 0;
+};
+
+struct GameRecord {
+    int64_t game_id = 0;
+    int64_t player1_id = 0;
+    int64_t player2_id = 0;
+    int64_t winner_id = 0;
+    std::string player1_name;
+    std::string player2_name;
+    std::string finished_at;    // "YYYY-MM-DD HH:MM:SS"
 };
 
 class Database {
@@ -34,6 +45,7 @@ public:
     
     std::optional<UserRecord> GetUserByName(const std::string& username);
     bool RecordGameResult(int64_t player1_id, int64_t player2_id, int64_t winner_id);
+    std::vector<GameRecord> GetUserHistory(int64_t user_id, int limit);
 
     int64_t CountGames();
 private:

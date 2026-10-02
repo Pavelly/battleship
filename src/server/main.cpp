@@ -27,11 +27,14 @@ int main(int argc, char** argv) {
     }
     LOG_INFO << "[Server] Battleship server starting...";
 
+    const std::string db_path = cfg.GetString("database", "path", "battleship.db");
+
     Database db;
-    if (!db.Open("battleship.db")) {
-        LOG_ERROR << "[Server] Failed to open database";
+    if (!db.Open(db_path)) {
+        LOG_ERROR << "[Server] Failed to open database at '" << db_path << "'";
         return 1;
     }
+    LOG_INFO << "[Server] Database opened: " << db_path;
 
     ServerSettings settings;
     settings.port                   = static_cast<uint16_t>(cfg.GetInt("server", "port", 9090));
